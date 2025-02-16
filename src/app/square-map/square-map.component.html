@@ -1,0 +1,40 @@
+<div>
+    <div #rendererContainer></div>
+    <div class="filters">
+      <label>
+        Max Height:
+        <input type="range" min="1" max="20" [(ngModel)]="maxHeight" (input)="updateMap()" />
+        <input type="number" min="1" max="20" [(ngModel)]="maxHeight" (input)="updateMap()" />
+      </label>
+      <label>
+        Stone Height:
+        <input type="range" min="0" max="1" step="0.01" [(ngModel)]="stoneHeight" (input)="updateMap()" />
+        <input type="number" min="0" max="1" step="0.01" [(ngModel)]="stoneHeight" (input)="updateMap()" />
+      </label>
+      <label>
+        Dirt Height:
+        <input type="range" min="0" max="1" step="0.01" [(ngModel)]="dirtHeight" (input)="updateMap()" />
+        <input type="number" min="0" max="1" step="0.01" [(ngModel)]="dirtHeight" (input)="updateMap()" />
+      </label>
+      <label>
+        Grass Height:
+        <input type="range" min="0" max="1" step="0.01" [(ngModel)]="grassHeight" (input)="updateMap()" />
+        <input type="number" min="0" max="1" step="0.01" [(ngModel)]="grassHeight" (input)="updateMap()" />
+      </label>
+      <label>
+        Sand Height:
+        <input type="range" min="0" max="1" step="0.01" [(ngModel)]="sandHeight" (input)="updateMap()" />
+        <input type="number" min="0" max="1" step="0.01" [(ngModel)]="sandHeight" (input)="updateMap()" />
+      </label>
+      <label>
+        House Size:
+        <input type="range" min="1" max="100" [(ngModel)]="houseSize" (input)="updateMap()" />
+        <input type="number" min="1" max="100" [(ngModel)]="houseSize" (input)="updateMap()" />
+      </label>
+      <label>
+        Section Size:
+        <input type="range" min="1" max="141" [(ngModel)]="sectionSize" (input)="updateMap()" />
+        <input type="number" min="1" max="141" [(ngModel)]="sectionSize" (input)="updateMap()" />
+      </label>
+    </div>
+  </div>

@@ -1,1 +1,21 @@
 /* You can add global styles to this file, and also import other style files */
+/* Small devices (landscape phones, 576px and up) */
+@media (min-width: 576px) {
+    /* Your styles for small devices */
+}
+
+/* Medium devices (tablets, 768px and up) */
+@media (min-width: 768px) {
+    /* Your styles for medium devices */
+}
+
+/* Large devices (desktops, 992px and up) */
+@media (min-width: 992px) {
+    /* Your styles for large devices */
+}
+
+/* Extra large devices (large desktops, 1200px and up) */
+@media (min-width: 1200px) {
+    /* Your styles for extra large devices */
+}
+
