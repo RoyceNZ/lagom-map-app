@@ -1,0 +1,11 @@
+.main-content {
+  margin-top: 95px; /* Adjusted for banner height to ensure content is below banner */
+  min-height: calc(100vh - 95px);
+}
+
+/* Ensure full viewport coverage */
+:host {
+  display: block;
+  height: 100vh;
+  overflow: hidden;
+}

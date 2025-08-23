@@ -1,0 +1,69 @@
+<header class="news-banner">
+  <!-- Top bar with date, time, and user info -->
+  <div class="top-bar">
+    <div class="date-time">
+      <span class="date">{{ getCurrentDate() }}</span>
+      <span class="time">{{ getCurrentTime() }}</span>
+    </div>
+    <div class="user-section">
+      <div *ngIf="!isLoggedIn" class="login-section">
+        <button class="login-btn" (click)="toggleLoginModal()">Login</button>
+      </div>
+      <div *ngIf="isLoggedIn" class="user-info">
+        <span class="welcome">Welcome, {{ currentUser }}</span>
+        <button class="logout-btn" (click)="logout()">Logout</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- Main banner with logo and navigation -->
+  <div class="main-banner">
+    <div class="logo-section">
+      <h1 class="site-title">LAGOM MAP</h1>
+      <span class="tagline">Your Interactive Mapping Solution</span>
+    </div>
+    <nav class="main-nav">
+      <a href="#" class="nav-link">Home</a>
+      <a href="#" class="nav-link">Maps</a>
+      <a href="#" class="nav-link">Tools</a>
+      <a href="#" class="nav-link">About</a>
+      <a href="#" class="nav-link">Contact</a>
+    </nav>
+  </div>
+
+  <!-- Login Modal -->
+  <div *ngIf="showLoginModal" class="modal-overlay" (click)="toggleLoginModal()">
+    <div class="login-modal" (click)="$event.stopPropagation()">
+      <div class="modal-header">
+        <h3>Login</h3>
+        <button class="close-btn" (click)="toggleLoginModal()">&times;</button>
+      </div>
+      <form (ngSubmit)="login()" class="login-form">
+        <div class="form-group">
+          <label for="username">Username:</label>
+          <input 
+            type="text" 
+            id="username" 
+            [(ngModel)]="username" 
+            name="username"
+            required
+            placeholder="Enter your username">
+        </div>
+        <div class="form-group">
+          <label for="password">Password:</label>
+          <input 
+            type="password" 
+            id="password" 
+            [(ngModel)]="password" 
+            name="password"
+            required
+            placeholder="Enter your password">
+        </div>
+        <div class="form-actions">
+          <button type="submit" class="submit-btn" [disabled]="!username || !password">Login</button>
+          <button type="button" class="cancel-btn" (click)="toggleLoginModal()">Cancel</button>
+        </div>
+      </form>
+    </div>
+  </div>
+</header>

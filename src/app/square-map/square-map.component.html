@@ -1,40 +1,208 @@
-<div>
-    <div #rendererContainer></div>
-    <div class="filters">
+<div class="square-map-container">
+  <div #rendererContainer id="rendererContainer"></div>
+  <div class="filters">
+    <label>
+      Max Height:
+      <input type="range" min="1" max="20" [(ngModel)]="maxHeight" (input)="updateMap()" />
+      <input type="number" min="1" max="20" [(ngModel)]="maxHeight" (input)="updateMap()" />
+    </label>
+    <label>
+      Stone Height:
+      <input type="range" min="0" max="1" step="0.01" [(ngModel)]="stoneHeight" (input)="updateMap()" />
+      <input type="number" min="0" max="1" step="0.01" [(ngModel)]="stoneHeight" (input)="updateMap()" />
+    </label>
+    <label>
+      Dirt Height:
+      <input type="range" min="0" max="1" step="0.01" [(ngModel)]="dirtHeight" (input)="updateMap()" />
+      <input type="number" min="0" max="1" step="0.01" [(ngModel)]="dirtHeight" (input)="updateMap()" />
+    </label>
+    <label>
+      Grass Height:
+      <input type="range" min="0" max="1" step="0.01" [(ngModel)]="grassHeight" (input)="updateMap()" />
+      <input type="number" min="0" max="1" step="0.01" [(ngModel)]="grassHeight" (input)="updateMap()" />
+    </label>
+    <label>
+      Stone Area:
+      <input type="number" [(ngModel)]="stoneArea" />
+    </label>
+    <label>
+      Dirt Area:
+      <input type="number" [(ngModel)]="dirtArea" />
+    </label>
+    <label>
+      Grass Area:
+      <input type="number" [(ngModel)]="grassArea" />
+    </label>
+    <label>
+      Sand Area:
+      <input type="number" [(ngModel)]="sandArea" />
+    </label>
+    <button (click)="updateMap()">Update Map</button>
+    
+    <!-- Population-Based Map Sizing -->
+    <div class="population-controls">
+      <h4>Population-Based Map Sizing</h4>
       <label>
-        Max Height:
-        <input type="range" min="1" max="20" [(ngModel)]="maxHeight" (input)="updateMap()" />
-        <input type="number" min="1" max="20" [(ngModel)]="maxHeight" (input)="updateMap()" />
+        <input type="checkbox" [(ngModel)]="usePopulationSizing" (change)="updateMap()" />
+        Use Population-Based Map Size
       </label>
       <label>
-        Stone Height:
-        <input type="range" min="0" max="1" step="0.01" [(ngModel)]="stoneHeight" (input)="updateMap()" />
-        <input type="number" min="0" max="1" step="0.01" [(ngModel)]="stoneHeight" (input)="updateMap()" />
+        Year:
+        <input type="number" min="1800" max="2050" [(ngModel)]="selectedYear" (input)="updateMap()" />
+      </label>
+      <div class="population-info" *ngIf="usePopulationSizing">
+        <small>
+          <strong>Population in {{ selectedYear }}: {{ getWorldPopulation(selectedYear).toLocaleString() }}</strong><br><br>
+          
+          <strong>Total Earth Surface Per Person:</strong><br>
+          • Total area (inc. oceans): {{ totalAreaPerPerson.toLocaleString() }} m²<br>
+          • Ocean area: {{ oceanAreaPerPerson.toLocaleString() }} m² (70.9%)<br>
+          • Total land area: {{ squareMetersPerPerson.toLocaleString() }} m² (29.1%)<br><br>
+          
+          <strong>Biome Breakdown Per Person:</strong><br>
+          • Saltwater (oceans/seas): {{ landBreakdownPerPerson['saltwater'].toLocaleString() }} m²<br>
+          • Freshwater (lakes/rivers): {{ landBreakdownPerPerson['freshwater'].toLocaleString() }} m²<br>
+          • Boreal Forest: {{ landBreakdownPerPerson['borealForest'].toLocaleString() }} m²<br>
+          • Temperate Forest: {{ landBreakdownPerPerson['temperateForest'].toLocaleString() }} m²<br>
+          • Tropical Rainforest: {{ landBreakdownPerPerson['tropicalRainforest'].toLocaleString() }} m²<br>
+          • Temperate Grassland: {{ landBreakdownPerPerson['temperateGrassland'].toLocaleString() }} m²<br>
+          • Savanna: {{ landBreakdownPerPerson['savanna'].toLocaleString() }} m²<br>
+          • Tundra: {{ landBreakdownPerPerson['tundra'].toLocaleString() }} m²<br>
+          • Deserts: {{ landBreakdownPerPerson['deserts'].toLocaleString() }} m²<br>
+          • Mountains: {{ landBreakdownPerPerson['mountains'].toLocaleString() }} m²<br>
+          • Pastureland: {{ landBreakdownPerPerson['pastureland'].toLocaleString() }} m²<br>
+          • Cropland: {{ landBreakdownPerPerson['cropland'].toLocaleString() }} m²<br>
+          • Scrub: {{ landBreakdownPerPerson['scrub'].toLocaleString() }} m²<br>
+          • Urban Areas: {{ landBreakdownPerPerson['urban'].toLocaleString() }} m²<br><br>
+          
+          <strong style="color: #ff6b35;">Actually usable for living: {{ usableAreaPerPerson.toLocaleString() }} m² (~11% of land)</strong><br><br>
+          
+          <strong>Map Terrain Legend:</strong><br>
+          • <span style="color: #D2691E;">Desert/Arid</span> → Sandy terrain<br>
+          • <span style="color: #228B22;">Forest/Jungle</span> → Green grassy terrain<br>
+          • <span style="color: #90EE90;">Grassland</span> → Green grassy terrain<br>
+          • <span style="color: #696969;">Mountains/Rocky</span> → Stone terrain<br>
+          • <span style="color: #87CEEB;">Tundra/Polar</span> → Light terrain (dirt2)<br>
+          • <span style="color: #4682B4;">Freshwater</span> → Dirt terrain<br>
+          • <span style="color: #2F4F4F;">Urban/Cities</span> → Stone terrain<br>
+          • <span style="color: #8B4513;">Unusable</span> → Light terrain (dirt2)<br><br>
+          
+          <strong>Map Visualization:</strong><br>
+          • Each tile: 1m × 1m<br>
+          • Map size: {{ populationBasedMapSize }}×{{ populationBasedMapSize }} tiles<br>
+          • Represents: {{ (populationBasedMapSize * populationBasedMapSize).toLocaleString() }} m² (1:1 scale)<br>
+          • Total Earth surface per person: {{ totalAreaPerPerson.toLocaleString() }} m² (includes oceans, land, everything)<br>
+          • Scale: **TRUE 1:1 SCALE** - Each map square meter = 1 real square meter of your Earth share!
+        </small>
+      </div>
+    </div>
+    
+    <!-- House Generation Controls -->
+    <div class="house-controls">
+      <h4>Procedural House</h4>
+      <label>
+        <input type="checkbox" [(ngModel)]="showHouse" (change)="updateHouse()" />
+        Show House on Map
       </label>
       <label>
-        Dirt Height:
-        <input type="range" min="0" max="1" step="0.01" [(ngModel)]="dirtHeight" (input)="updateMap()" />
-        <input type="number" min="0" max="1" step="0.01" [(ngModel)]="dirtHeight" (input)="updateMap()" />
+        House Area (Square Meters):
+        <input type="range" min="25" max="400" [(ngModel)]="houseAreaSqM" (input)="updateHouse()" />
+        <input type="number" min="25" max="400" [(ngModel)]="houseAreaSqM" (input)="updateHouse()" />
       </label>
       <label>
-        Grass Height:
-        <input type="range" min="0" max="1" step="0.01" [(ngModel)]="grassHeight" (input)="updateMap()" />
-        <input type="number" min="0" max="1" step="0.01" [(ngModel)]="grassHeight" (input)="updateMap()" />
+        Number of Floors:
+        <input type="range" min="1" max="5" [(ngModel)]="numberOfFloors" (input)="updateHouseAppearance()" />
+        <input type="number" min="1" max="5" [(ngModel)]="numberOfFloors" (input)="updateHouseAppearance()" />
       </label>
       <label>
-        Sand Height:
-        <input type="range" min="0" max="1" step="0.01" [(ngModel)]="sandHeight" (input)="updateMap()" />
-        <input type="number" min="0" max="1" step="0.01" [(ngModel)]="sandHeight" (input)="updateMap()" />
+        Floor Height (Meters):
+        <input type="range" min="2" max="5" step="0.1" [(ngModel)]="floorHeight" (input)="updateHouseAppearance()" />
+        <input type="number" min="2" max="5" step="0.1" [(ngModel)]="floorHeight" (input)="updateHouseAppearance()" />
       </label>
       <label>
-        House Size:
-        <input type="range" min="1" max="100" [(ngModel)]="houseSize" (input)="updateMap()" />
-        <input type="number" min="1" max="100" [(ngModel)]="houseSize" (input)="updateMap()" />
+        House Position X:
+        <input type="range" min="-50" max="50" [(ngModel)]="housePositionX" (input)="updateHouse()" />
+        <input type="number" min="-50" max="50" [(ngModel)]="housePositionX" (input)="updateHouse()" />
       </label>
       <label>
-        Section Size:
-        <input type="range" min="1" max="141" [(ngModel)]="sectionSize" (input)="updateMap()" />
-        <input type="number" min="1" max="141" [(ngModel)]="sectionSize" (input)="updateMap()" />
+        House Position Z:
+        <input type="range" min="-50" max="50" [(ngModel)]="housePositionZ" (input)="updateHouse()" />
+        <input type="number" min="-50" max="50" [(ngModel)]="housePositionZ" (input)="updateHouse()" />
+      </label>
+      
+      <!-- House Material Colors -->
+      <h5>House Colors</h5>
+      <label>
+        Wall Color:
+        <input type="color" [(ngModel)]="wallColor" (input)="updateHouseAppearance()" />
+      </label>
+      <label>
+        Roof Color:
+        <input type="color" [(ngModel)]="roofColor" (input)="updateHouseAppearance()" />
+      </label>
+      <label>
+        Window Color:
+        <input type="color" [(ngModel)]="windowColor" (input)="updateHouseAppearance()" />
+      </label>
+      <label>
+        Door Color:
+        <input type="color" [(ngModel)]="doorColor" (input)="updateHouseAppearance()" />
+      </label>
+      
+      <!-- Section Controls -->
+      <h5>Property Section</h5>
+      <label>
+        <input type="checkbox" [(ngModel)]="showSection" (change)="updateHouse()" />
+        Show Section Boundary
+      </label>
+      <label>
+        <input type="checkbox" [(ngModel)]="showGardenObjects" (change)="updateHouseAppearance()" />
+        Show Garden Objects (Trees & Flowers)
+      </label>
+      <label>
+        Section Area (Square Meters):
+        <input type="range" [min]="minSectionArea" max="5000" [(ngModel)]="sectionAreaSqM" (input)="updateHouse()" />
+        <input type="number" [min]="minSectionArea" max="5000" [(ngModel)]="sectionAreaSqM" (input)="updateHouse()" />
+        <small>Minimum: {{ minSectionArea }} sq m (house size)</small>
+      </label>
+      
+      <!-- Diet & Food Production Area -->
+      <h5>Food Production Area</h5>
+      <label>
+        <input type="checkbox" [(ngModel)]="showFoodArea" (change)="updateHouse()" />
+        Show Food Production Area
+      </label>
+      <label>
+        <input type="checkbox" [(ngModel)]="showFarmModels" (change)="updateHouseAppearance()" />
+        Show Farm Models
+      </label>
+      <label>
+        Diet Type:
+        <select [(ngModel)]="selectedDiet" (change)="updateHouse()">
+          <option value="vegan">Vegan ({{ dietRequirements.vegan }} sq m)</option>
+          <option value="vegetarian">Vegetarian ({{ dietRequirements.vegetarian }} sq m)</option>
+          <option value="pescatarian">Pescatarian ({{ dietRequirements.pescatarian }} sq m)</option>
+          <option value="flexitarian">Flexitarian ({{ dietRequirements.flexitarian }} sq m)</option>
+          <option value="omnivore">Omnivore ({{ dietRequirements.omnivore }} sq m)</option>
+        </select>
+        <small>Current requirement: {{ foodProductionArea }} sq m for {{ selectedDiet }} diet</small>
+      </label>
+      
+      <!-- Clothing Materials Area -->
+      <h5>Clothing Materials Area</h5>
+      <label>
+        <input type="checkbox" [(ngModel)]="showClothingArea" (change)="updateHouse()" />
+        Show Clothing Materials Area
+      </label>
+      <label>
+        Clothing Consumption:
+        <select [(ngModel)]="selectedClothingConsumption" (change)="updateHouseAppearance()">
+          <option value="low">Low Consumption ({{ clothingRequirements.low }} sq m)</option>
+          <option value="medium">Medium Consumption ({{ clothingRequirements.medium }} sq m)</option>
+          <option value="high">High Consumption ({{ clothingRequirements.high }} sq m)</option>
+        </select>
+        <small>Current requirement: {{ clothingProductionArea }} sq m for {{ selectedClothingConsumption }} consumption</small>
       </label>
     </div>
   </div>
+</div>
