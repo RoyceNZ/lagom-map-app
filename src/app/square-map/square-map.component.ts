@@ -23,25 +23,39 @@ export type TerrainType =
   | 'scrub'
   | 'urban';
 
-// Visual representation mapping (Three.js material types)
-export type VisualTerrainType = 'stone' | 'dirt' | 'dirt2' | 'sand' | 'grass' | 'water';
+// Visual representation mapping (Three.js material types) - expanded for 1:1 mapping
+export type VisualTerrainType = 
+  | 'mountains'          // Grey stone for rocky peaks
+  | 'tundra'             // Light grey stone for cold barren areas  
+  | 'urban'              // Dark grey stone for built areas
+  | 'borealForest'       // Dark green trees for northern forests
+  | 'temperateForest'    // Medium green trees for temperate forests
+  | 'tropicalRainforest' // Bright green trees for tropical forests
+  | 'cropland'           // Yellow grass for farmland
+  | 'scrub'              // Green grass for shrubland
+  | 'temperateGrassland' // Greener grass for grasslands
+  | 'pastureland'        // Dark grass for grazing land
+  | 'savanna'            // Clay color for warm grasslands
+  | 'deserts'            // Sand color for hot dry areas
+  | 'saltwater'          // Dark blue for ocean
+  | 'freshwater';        // Light blue for lakes/rivers
 
-// Map terrain types to visual representation (Three.js materials)
+// Map terrain types to visual representation (1:1 mapping)
 export const TERRAIN_VISUAL_MAPPING: Record<TerrainType, VisualTerrainType> = {
-  saltwater: 'dirt2',           // Blue water texture (ocean)
-  freshwater: 'water',          // Alternative water texture (lakes/rivers)  
-  borealForest: 'grass',        // Green forest texture
-  temperateForest: 'grass',     // Green forest texture
-  tropicalRainforest: 'grass',  // Green forest texture
-  temperateGrassland: 'grass',  // Green grass texture
-  savanna: 'sand',              // Sandy/tan texture for dry grassland
-  tundra: 'stone',              // Grey/rocky texture for cold climate
-  deserts: 'sand',              // Sandy texture
-  mountains: 'stone',           // Rocky/grey texture
-  pastureland: 'grass',         // Green grass texture
-  cropland: 'dirt',             // Brown dirt texture for farmland
-  scrub: 'sand',                // Sandy texture for dry vegetation  
-  urban: 'stone'                // Grey/stone texture for built areas
+  saltwater: 'saltwater',                    // Dark blue water (ocean)
+  freshwater: 'freshwater',                  // Light blue water (lakes/rivers)  
+  borealForest: 'borealForest',              // Dark green trees - northern forests
+  temperateForest: 'temperateForest',        // Medium green trees - temperate forests
+  tropicalRainforest: 'tropicalRainforest',  // Bright green trees - tropical forests
+  temperateGrassland: 'temperateGrassland',  // Greener grass - grasslands and meadows
+  savanna: 'savanna',                        // Clay color - warm dry grasslands
+  tundra: 'tundra',                          // Light grey stone - cold barren areas
+  deserts: 'deserts',                        // Sand color - hot dry areas
+  mountains: 'mountains',                    // Grey stone - rocky peaks
+  pastureland: 'pastureland',                // Dark grass - grazing land
+  cropland: 'cropland',                      // Yellow grass - farmland
+  scrub: 'scrub',                            // Green grass - dry shrubland and coastal areas
+  urban: 'urban'                             // Dark grey stone - built areas (house/section)
 } as const;
 
 @Component({
@@ -57,10 +71,7 @@ export class SquareMapComponent implements AfterViewInit {
   renderer!: THREE.WebGLRenderer;
 
   maxHeight = 10;
-  stoneHeight = 0.8;
-  dirtHeight = 0.7;
-  grassHeight = 0.5;
-  sandHeight = 0.3;
+  // Legacy height properties removed - using terrain-based heights instead
 
   houseSize = 130;
   sectionSize = 750;
@@ -70,8 +81,8 @@ export class SquareMapComponent implements AfterViewInit {
   numberOfFloors = 2;
   floorHeight = 3; // Height of each floor in meters
   showHouse = true;
-  housePositionX = 0;
-  housePositionZ = 0;
+  housePositionX = 0;  // Keep centered on east-west axis
+  housePositionZ = 0;  // Will be calculated based on map size - halfway to south coast
 
   // House material colors
   wallColor = '#d4af37'; // Gold color for walls
@@ -85,7 +96,7 @@ export class SquareMapComponent implements AfterViewInit {
 
   // Diet properties for food production area
   selectedDiet = 'vegan'; // Default diet
-  showFoodArea = true;
+  showFoodArea = true; // Enable food production areas
   dietRequirements = {
     vegan: 150,
     vegetarian: 250,
@@ -104,7 +115,7 @@ export class SquareMapComponent implements AfterViewInit {
   showClothingModels = true;
 
   // Clothing area properties
-  showClothingArea = true; // Show clothing area by default
+  showClothingArea = true; // Enable clothing production areas
   selectedClothingConsumption = 'medium';
   clothingRequirements = {
     low: 200,
@@ -117,22 +128,24 @@ export class SquareMapComponent implements AfterViewInit {
   transitionDuration = 300; // milliseconds
   private updateTimeout: any;
   
-  // Store mesh references for selective updates
-  private stoneMesh!: THREE.InstancedMesh;
-  private dirtMesh!: THREE.InstancedMesh;
-  private dirt2Mesh!: THREE.InstancedMesh;
-  private sandMesh!: THREE.InstancedMesh;
-  private grassMesh!: THREE.InstancedMesh;
-  private waterMesh!: THREE.InstancedMesh;
+  // Store mesh references for each terrain type
+  private mountainsMesh!: THREE.InstancedMesh;
+  private tundraMesh!: THREE.InstancedMesh;
+  private urbanMesh!: THREE.InstancedMesh;
+  private borealForestMesh!: THREE.InstancedMesh;
+  private temperateForestMesh!: THREE.InstancedMesh;
+  private tropicalRainforestMesh!: THREE.InstancedMesh;
+  private croplandMesh!: THREE.InstancedMesh;
+  private scrubMesh!: THREE.InstancedMesh;
+  private temperateGrasslandMesh!: THREE.InstancedMesh;
+  private pasturelandMesh!: THREE.InstancedMesh;
+  private savannaMesh!: THREE.InstancedMesh;
+  private desertsMesh!: THREE.InstancedMesh;
+  private saltwaterMesh!: THREE.InstancedMesh;
+  private freshwaterMesh!: THREE.InstancedMesh;
   private currentHouseFootprint: Set<string> = new Set();
-  private currentSectionFootprint: Set<string> = new Set();
   private tileToInstanceMap: Map<string, {mesh: THREE.InstancedMesh, index: number}> = new Map();
   private originalHeights: Map<string, number> = new Map(); // Cache original terrain heights
-
-  stoneArea = 20;
-  dirtArea = 40;
-  grassArea = 60;
-  sandArea = 80;
 
   light!: THREE.DirectionalLight;
 
@@ -469,16 +482,122 @@ export class SquareMapComponent implements AfterViewInit {
         return 'pastureland'; // Grazing/textile production
       }
     }
+
+    // Create natural island with concentrated center and gradual transitions
+    const mapSize = this.populationBasedMapSize;
+    const centerX = mapSize / 2;
+    const centerZ = mapSize / 2;
     
-    // Natural terrain distribution from center outward
-    if (adjustedDistance < 0.15) {
-      return noiseValue < 0.5 ? 'mountains' : 'cropland'; // Mountain core
-    } else if (adjustedDistance < 0.3) {
-      return noiseValue < 0.3 ? 'mountains' : (noiseValue < 0.6 ? 'cropland' : 'temperateForest'); // Mid island
-    } else if (adjustedDistance < 0.45) {
-      return noiseValue < 0.4 ? 'temperateGrassland' : (noiseValue < 0.7 ? 'deserts' : 'cropland'); // Outer areas
+    // Force some terrain types to appear in specific guaranteed zones (very aggressive coverage)
+    const relativeX = x - centerX;
+    const relativeZ = z - centerZ;
+    
+    // Guaranteed tropical rainforest zone (southeast quadrant, very large coverage)
+    if (relativeX > 5 && relativeZ > 5 && adjustedDistance > 0.15 && adjustedDistance < 0.8) {
+      const tropicalZone = Math.sqrt((relativeX - 30) ** 2 + (relativeZ - 30) ** 2);
+      if (tropicalZone < 100) {
+        console.log(`FORCED tropical rainforest at (${x},${z}), relativeX=${relativeX.toFixed(1)}, relativeZ=${relativeZ.toFixed(1)}, distance=${adjustedDistance.toFixed(3)}`);
+        return 'tropicalRainforest';
+      }
+    }
+    
+    // Guaranteed savanna zone (south central, maximum coverage)
+    if (relativeZ > 5 && adjustedDistance > 0.2 && adjustedDistance < 0.8) {
+      const savannaZone = Math.sqrt((relativeX) ** 2 + (relativeZ - 40) ** 2);
+      if (savannaZone < 120) {
+        console.log(`FORCED savanna at (${x},${z}), relativeX=${relativeX.toFixed(1)}, relativeZ=${relativeZ.toFixed(1)}, distance=${adjustedDistance.toFixed(3)}`);
+        return 'savanna';
+      }
+    }
+    
+    // Guaranteed desert zone (southwest quadrant, maximum coverage)
+    if (relativeX < -5 && relativeZ > 5 && adjustedDistance > 0.2 && adjustedDistance < 0.8) {
+      const desertZone = Math.sqrt((relativeX + 30) ** 2 + (relativeZ - 30) ** 2);
+      if (desertZone < 100) {
+        console.log(`FORCED desert at (${x},${z}), relativeX=${relativeX.toFixed(1)}, relativeZ=${relativeZ.toFixed(1)}, distance=${adjustedDistance.toFixed(3)}`);
+        return 'deserts';
+      }
+    }
+    
+    // Calculate angle from center for directional biomes
+    const angle = Math.atan2(z - centerZ, x - centerX);
+    const normalizedAngle = (angle + Math.PI) / (2 * Math.PI); // 0-1
+    
+    // Add subtle natural variation using multiple noise layers
+    const elevationNoise = Math.sin(x * 0.015) * Math.cos(z * 0.018) * 0.08;
+    const climateNoise = Math.sin(x * 0.01 + z * 0.012) * 0.12;
+    
+    const effectiveDistance = Math.max(0, Math.min(1, adjustedDistance + elevationNoise));
+    const moisture = Math.max(0, Math.min(1, noiseValue + climateNoise));
+    
+    // Central mountain core - tightly concentrated
+    if (effectiveDistance < 0.08) {
+      return 'urban'; // House location at very center
+    } else if (effectiveDistance < 0.18) {
+      // Inner mountain ring - primarily stone/tundra
+      return moisture > 0.6 ? 'tundra' : 'mountains';
+    } else if (effectiveDistance < 0.28) {
+      // Mountain slopes transitioning to forests
+      if (moisture > 0.7) {
+        return 'borealForest'; // Cold mountain forests
+      } else if (moisture > 0.4) {
+        return 'tundra'; // High altitude areas
+      } else {
+        return Math.random() < 0.3 ? 'mountains' : 'tundra'; // Scattered rocky areas
+      }
+    } else if (effectiveDistance < 0.45) {
+      // Mid-elevation forested zones with regional variation
+      const sector = Math.floor(normalizedAngle * 6) % 6; // 6 sectors for larger regions
+      
+      switch(sector) {
+        case 0: case 1: // Northern regions
+          return moisture > 0.5 ? 'borealForest' : 'temperateForest';
+        case 2: // Eastern regions
+          return moisture > 0.6 ? 'temperateForest' : 'temperateGrassland';
+        case 3: case 4: // Southern regions  
+          const result = moisture > 0.5 ? 'tropicalRainforest' : (moisture > 0.2 ? 'savanna' : 'temperateForest');
+          // Debug logging for southern regions occasionally
+          if (Math.random() < 0.002) {
+            console.log(`Southern region tile (${x},${z}): sector=${sector}, moisture=${moisture.toFixed(3)}, distance=${effectiveDistance.toFixed(3)}, result=${result}`);
+          }
+          return result;
+        case 5: // Western regions
+          return moisture > 0.5 ? 'temperateForest' : 'temperateGrassland';
+        default:
+          return 'temperateForest';
+      }
+    } else if (effectiveDistance < 0.65) {
+      // Lower elevation transitional zones
+      const sector = Math.floor(normalizedAngle * 6) % 6;
+      
+      switch(sector) {
+        case 0: case 1: // Northern coastal approach
+          return moisture > 0.6 ? 'temperateForest' : 'temperateGrassland';
+        case 2: // Eastern coastal approach
+          return moisture > 0.5 ? 'temperateGrassland' : 'scrub';
+        case 3: case 4: // Southern coastal approach
+          const coastalResult = moisture > 0.4 ? 'savanna' : (moisture > 0.15 ? 'scrub' : 'deserts');
+          // Debug logging for southern coastal areas occasionally  
+          if (Math.random() < 0.003) {
+            console.log(`Southern coastal tile (${x},${z}): sector=${sector}, moisture=${moisture.toFixed(3)}, distance=${effectiveDistance.toFixed(3)}, result=${coastalResult}`);
+          }
+          return coastalResult;
+        case 5: // Western coastal approach
+          return moisture > 0.4 ? 'temperateGrassland' : 'scrub';
+        default:
+          return 'scrub';
+      }
     } else {
-      return noiseValue < 0.6 ? 'deserts' : 'temperateGrassland'; // Coastal areas
+      // Coastal fringe - mostly scrub before ocean, but some deserts in southern regions
+      const angle = Math.atan2(z - this.populationBasedMapSize/2, x - this.populationBasedMapSize/2);
+      const normalizedAngle = (angle + Math.PI) / (2 * Math.PI);
+      const sector = Math.floor(normalizedAngle * 6) % 6;
+      
+      if (sector === 3 || sector === 4) { // Southern coastal fringe
+        return moisture > 0.5 ? 'temperateGrassland' : (moisture > 0.2 ? 'scrub' : 'deserts');
+      } else {
+        return moisture > 0.6 ? 'temperateGrassland' : 'scrub';
+      }
     }
   }
 
@@ -497,18 +616,134 @@ export class SquareMapComponent implements AfterViewInit {
       
       // Get logical terrain type, then map to visual representation
       const logicalTerrain = this.getLogicalTerrainType(noiseValue, x, z, adjustedDistance);
+      
+      // Debug logging for terrain mapping (remove after verification)
+      if (Math.random() < 0.001) { // Log 0.1% of tiles to avoid spam
+        const visualType = TERRAIN_VISUAL_MAPPING[logicalTerrain];
+        const baseElevation = 1 - adjustedDistance;
+        const terrainNoise1 = Math.sin(x * 0.008 + z * 0.012) * 0.4;
+        const terrainNoise2 = Math.cos(x * 0.015 - z * 0.009) * 0.3;
+        const terrainNoise3 = Math.sin(x * 0.025 + z * 0.02) * 0.2;
+        const naturalVariation = (terrainNoise1 + terrainNoise2 + terrainNoise3) / 3;
+        const elevation = baseElevation + naturalVariation * 0.3;
+        console.log(`Tile (${x},${z}): logical="${logicalTerrain}" → visual="${visualType}", elev=${elevation.toFixed(2)}, dist=${adjustedDistance.toFixed(2)}`);
+      }
+      
       return TERRAIN_VISUAL_MAPPING[logicalTerrain];
     } else {
       // This tile is water (ocean + some inland lakes)
       this.oceanTileCount++;
       
-      // Determine if it's saltwater or freshwater based on location
+      // Create natural freshwater features based on geographic principles
       const adjustedDistance = Math.sqrt(x * x + z * z) / this.mapHalfSize;
-      const isInlandWater = adjustedDistance < 0.3 && Math.random() < 0.1; // 10% chance of inland water
       
-      // Both saltwater and freshwater use the same visual representation
+      // Generate natural freshwater features
+      const isInlandWater = this.shouldBeFreshwater(x, z, adjustedDistance);
+      
+      // Debug logging for water tiles occasionally - more aggressive
+      if (Math.random() < 0.002) { // Increased frequency
+        console.log(`Water tile (${x},${z}): distance=${adjustedDistance.toFixed(3)}, isInland=${isInlandWater}, mapSize=${this.populationBasedMapSize}, mapHalfSize=${this.mapHalfSize}`);
+      }
+      
+      // Force some freshwater for debugging - much more aggressive
+      if (adjustedDistance < 0.7 && Math.random() < 0.15) { // Increased distance and probability
+        console.log(`FORCED freshwater at (${x},${z}), distance=${adjustedDistance.toFixed(3)}`);
+        return TERRAIN_VISUAL_MAPPING['freshwater'];
+      }
+      
       return TERRAIN_VISUAL_MAPPING[isInlandWater ? 'freshwater' : 'saltwater'];
     }
+  }
+
+  private shouldBeFreshwater(x: number, z: number, adjustedDistance: number): boolean {
+    // Only create freshwater features inland - much more permissive
+    if (adjustedDistance > 0.7) return false; // Increased from 0.4
+    
+    // Get map center for relative positioning
+    const mapSize = this.populationBasedMapSize;
+    const centerX = mapSize / 2;
+    const centerZ = mapSize / 2;
+    
+    // Convert absolute coordinates to relative coordinates from map center
+    const relativeX = x - centerX;
+    const relativeZ = z - centerZ;
+    
+    // Scale freshwater features relative to map size - much more aggressive
+    const mapScale = mapSize / 200; // Increased from 250 to make features larger
+    
+    // Central lake (mountain-fed) - much larger and more prominent
+    const centralLakeDistance = Math.sqrt((relativeX + 3 * mapScale) ** 2 + (relativeZ - 5 * mapScale) ** 2);
+    if (centralLakeDistance < 12 * mapScale) { // Much larger: increased from 8 to 12
+      if (Math.random() < 0.05) { // More frequent logging
+        console.log(`Central lake detected at (${x},${z}), distance: ${centralLakeDistance.toFixed(2)}, threshold: ${(12 * mapScale).toFixed(2)}`);
+      }
+      return true;
+    }
+    
+    // Multiple smaller lakes scattered around
+    const lake1 = Math.sqrt((relativeX - 8 * mapScale) ** 2 + (relativeZ - 8 * mapScale) ** 2) < 6 * mapScale;
+    const lake2 = Math.sqrt((relativeX + 10 * mapScale) ** 2 + (relativeZ + 6 * mapScale) ** 2) < 5 * mapScale;
+    const lake3 = Math.sqrt((relativeX - 6 * mapScale) ** 2 + (relativeZ + 12 * mapScale) ** 2) < 4 * mapScale;
+    if ((lake1 || lake2 || lake3) && adjustedDistance < 0.35) return true;
+    
+    // River system - much more prominent
+    const riverNoise = Math.sin(x * 0.08 / mapScale + z * 0.06 / mapScale) * 0.5;
+    const isNearRiverPath = Math.abs(relativeX - relativeZ * 0.2) < (5 + riverNoise) * mapScale && 
+                           adjustedDistance < 0.35 && 
+                           adjustedDistance > 0.05;
+    if (isNearRiverPath && Math.random() < 0.6) return true; // Much higher probability
+    
+    // Forest ponds everywhere
+    const forestPondNoise = Math.sin(x * 0.12 / mapScale) * Math.cos(z * 0.1 / mapScale);
+    if (adjustedDistance < 0.3 && forestPondNoise > 0.5 && Math.random() < 0.3) return true;
+    
+    return false;
+  }
+
+  generateVisualMap(): void {
+    console.log('=== ACTUAL MAP VISUAL REPRESENTATION ===');
+    const halfSize = this.mapHalfSize;
+    const step = 8; // Sample every 8th tile to make it manageable
+    
+    // Create character mapping for each terrain type
+    const terrainChars: Record<VisualTerrainType, string> = {
+      saltwater: '~',           // Dark blue water (ocean)
+      freshwater: 'w',          // Light blue water (lakes/rivers)
+      mountains: 'M',           // Grey stone (rocky peaks)
+      tundra: 'T',              // Light grey stone (cold barren)
+      urban: 'U',               // Dark grey stone (built areas)
+      borealForest: 'B',        // Dark green trees (northern forests)
+      temperateForest: 'F',     // Medium green trees (temperate forests)
+      tropicalRainforest: 'R',  // Bright green trees (tropical forests)
+      cropland: 'C',            // Yellow grass (farmland)
+      scrub: 's',               // Green grass (shrubland)
+      temperateGrassland: 'G',  // Greener grass (grasslands)
+      pastureland: 'P',         // Dark grass (grazing land)
+      savanna: 'S',             // Clay color (warm grasslands)
+      deserts: 'D'              // Sand color (hot dry areas)
+    };
+    
+    console.log('Legend: ~ = Saltwater, w = Freshwater, M = Mountains, T = Tundra, U = Urban');
+    console.log('        B = Boreal Forest, F = Temperate Forest, R = Tropical Rainforest');
+    console.log('        C = Cropland, s = Scrub, G = Grassland, P = Pasture, S = Savanna, D = Desert');
+    console.log('');
+    
+    // Sample the map in a grid pattern
+    for (let z = halfSize; z >= -halfSize; z -= step) {
+      let row = '';
+      for (let x = -halfSize; x <= halfSize; x += step) {
+        // Get the terrain type for this position
+        const noise = Math.random(); // Use random since we don't have the exact noise
+        const terrainType = this.getTerrainTypeFromNoise(noise, x, z);
+        row += terrainChars[terrainType] + ' ';
+      }
+      console.log(row);
+    }
+    
+    console.log('');
+    console.log('Map shows from top (North) to bottom (South), left (West) to right (East)');
+    console.log('Center of map is roughly in the middle of the grid');
+    console.log('=========================================');
   }
 
   ngAfterViewInit(): void {
@@ -570,6 +805,9 @@ export class SquareMapComponent implements AfterViewInit {
     controls.enableDamping = true;
     controls.minDistance = 30;
     controls.maxDistance = 500;
+    
+    // Prevent viewing the bottom of the map
+    controls.maxPolarAngle = Math.PI / 2; // Limit to horizontal view (90 degrees max)
 
     this.renderer.setAnimationLoop(() => {
       controls.update();
@@ -612,13 +850,22 @@ export class SquareMapComponent implements AfterViewInit {
     let envMapTexture = await new RGBELoader().setDataType(THREE.FloatType).loadAsync('assets/envmap.hdr');
     let envmap = pmrem.fromEquirectangular(envMapTexture).texture;
 
+    // Load individual textures for each terrain type
     let textures = {
-      grass: new THREE.TextureLoader().load('assets/grass.jpg'),
-      stone: new THREE.TextureLoader().load('assets/stone.png'),
-      sand: new THREE.TextureLoader().load('assets/sand.jpg'),
-      dirt: new THREE.TextureLoader().load('assets/dirt.png'),
-      dirt2: new THREE.TextureLoader().load('assets/dirt2.jpg'),
-      water: new THREE.TextureLoader().load('assets/water.jpg'),
+      mountains: new THREE.TextureLoader().load('assets/mountains.png'),
+      tundra: new THREE.TextureLoader().load('assets/tundra.png'),
+      urban: new THREE.TextureLoader().load('assets/urban.png'),
+      borealForest: new THREE.TextureLoader().load('assets/borealForest.png'),
+      temperateForest: new THREE.TextureLoader().load('assets/temperateForest.png'),
+      tropicalRainforest: new THREE.TextureLoader().load('assets/tropicalRainforest.png'),
+      cropland: new THREE.TextureLoader().load('assets/cropland.png'),
+      scrub: new THREE.TextureLoader().load('assets/scrub.png'),
+      temperateGrassland: new THREE.TextureLoader().load('assets/temperateGrassland.png'),
+      pastureland: new THREE.TextureLoader().load('assets/pastureland.png'),
+      savanna: new THREE.TextureLoader().load('assets/savanna.png'),
+      deserts: new THREE.TextureLoader().load('assets/deserts.png'),
+      saltwater: new THREE.TextureLoader().load('assets/saltwater.png'),
+      freshwater: new THREE.TextureLoader().load('assets/freshwater.png')
     }
     
     // Remove noise generation since we're using flat terrain
@@ -627,6 +874,13 @@ export class SquareMapComponent implements AfterViewInit {
     const squareCount = mapSize * mapSize;
     console.log('Map dimensions:', mapSize, 'x', mapSize, '=', squareCount, 'squares');
     console.log('Half size:', halfSize);
+    
+    // Calculate house position - halfway to south coastline
+    // The island radius is approximately 85% of halfSize based on terrain generation
+    const islandRadius = halfSize * 0.85;
+    this.housePositionX = 0;  // Keep centered on east-west axis
+    this.housePositionZ = islandRadius * 0.5;  // Halfway to southern coastline (positive Z = south)
+    console.log(`House positioned at: (${this.housePositionX}, ${this.housePositionZ}) - halfway to south coast`);
     
     // Initialize precise ocean tile counting
     if (this.usePopulationSizing) {
@@ -648,38 +902,81 @@ export class SquareMapComponent implements AfterViewInit {
       this.calculateLandDistribution(halfSize);
     }
     const squareGeometry = new THREE.BoxGeometry(1, 1, 1);
-    this.stoneMesh = new THREE.InstancedMesh(squareGeometry, new THREE.MeshPhysicalMaterial({ envMap: envmap, envMapIntensity: 0.135, flatShading: true, roughness: 1, metalness: 0, map: textures.stone }), squareCount);
-    this.dirtMesh = new THREE.InstancedMesh(squareGeometry, new THREE.MeshPhysicalMaterial({ envMap: envmap, envMapIntensity: 0.135, flatShading: true, roughness: 1, metalness: 0, map: textures.dirt }), squareCount);
-    this.dirt2Mesh = new THREE.InstancedMesh(squareGeometry, new THREE.MeshPhysicalMaterial({ 
-      envMap: envmap, 
-      envMapIntensity: 0.3, 
-      flatShading: false, 
-      roughness: 0.1, 
-      metalness: 0.1, 
-      map: textures.water,
-      transparent: true,
-      opacity: 0.8,
-      color: 0x4080ff
+    
+    // Create individual meshes for each terrain type with their specific textures
+    this.mountainsMesh = new THREE.InstancedMesh(squareGeometry, new THREE.MeshPhysicalMaterial({ 
+      envMap: envmap, envMapIntensity: 0.135, flatShading: true, roughness: 1, metalness: 0, map: textures.mountains 
     }), squareCount);
-    this.sandMesh = new THREE.InstancedMesh(squareGeometry, new THREE.MeshPhysicalMaterial({ envMap: envmap, envMapIntensity: 0.135, flatShading: true, roughness: 1, metalness: 0, map: textures.sand }), squareCount);
-    this.grassMesh = new THREE.InstancedMesh(squareGeometry, new THREE.MeshPhysicalMaterial({ envMap: envmap, envMapIntensity: 0.135, flatShading: true, roughness: 1, metalness: 0, map: textures.grass }), squareCount);
-    this.waterMesh = new THREE.InstancedMesh(squareGeometry, new THREE.MeshPhysicalMaterial({ 
-      envMap: envmap, 
-      envMapIntensity: 0.3, 
-      flatShading: false, 
-      roughness: 0.0, 
-      metalness: 0.0, 
-      map: textures.water,
-      transparent: true,
-      opacity: 0.8,
-      color: 0x20a0ff
+    
+    this.tundraMesh = new THREE.InstancedMesh(squareGeometry, new THREE.MeshPhysicalMaterial({ 
+      envMap: envmap, envMapIntensity: 0.135, flatShading: true, roughness: 1, metalness: 0, map: textures.tundra 
+    }), squareCount);
+    
+    this.urbanMesh = new THREE.InstancedMesh(squareGeometry, new THREE.MeshPhysicalMaterial({ 
+      envMap: envmap, envMapIntensity: 0.135, flatShading: true, roughness: 1, metalness: 0, map: textures.urban 
+    }), squareCount);
+    
+    this.borealForestMesh = new THREE.InstancedMesh(squareGeometry, new THREE.MeshPhysicalMaterial({ 
+      envMap: envmap, envMapIntensity: 0.135, flatShading: true, roughness: 1, metalness: 0, map: textures.borealForest 
+    }), squareCount);
+    
+    this.temperateForestMesh = new THREE.InstancedMesh(squareGeometry, new THREE.MeshPhysicalMaterial({ 
+      envMap: envmap, envMapIntensity: 0.135, flatShading: true, roughness: 1, metalness: 0, map: textures.temperateForest 
+    }), squareCount);
+    
+    this.tropicalRainforestMesh = new THREE.InstancedMesh(squareGeometry, new THREE.MeshPhysicalMaterial({ 
+      envMap: envmap, envMapIntensity: 0.135, flatShading: true, roughness: 1, metalness: 0, map: textures.tropicalRainforest 
+    }), squareCount);
+    
+    this.croplandMesh = new THREE.InstancedMesh(squareGeometry, new THREE.MeshPhysicalMaterial({ 
+      envMap: envmap, envMapIntensity: 0.135, flatShading: true, roughness: 1, metalness: 0, map: textures.cropland 
+    }), squareCount);
+    
+    this.scrubMesh = new THREE.InstancedMesh(squareGeometry, new THREE.MeshPhysicalMaterial({ 
+      envMap: envmap, envMapIntensity: 0.135, flatShading: true, roughness: 1, metalness: 0, map: textures.scrub 
+    }), squareCount);
+    
+    this.temperateGrasslandMesh = new THREE.InstancedMesh(squareGeometry, new THREE.MeshPhysicalMaterial({ 
+      envMap: envmap, envMapIntensity: 0.135, flatShading: true, roughness: 1, metalness: 0, map: textures.temperateGrassland 
+    }), squareCount);
+    
+    this.pasturelandMesh = new THREE.InstancedMesh(squareGeometry, new THREE.MeshPhysicalMaterial({ 
+      envMap: envmap, envMapIntensity: 0.135, flatShading: true, roughness: 1, metalness: 0, map: textures.pastureland 
+    }), squareCount);
+    
+    this.savannaMesh = new THREE.InstancedMesh(squareGeometry, new THREE.MeshPhysicalMaterial({ 
+      envMap: envmap, envMapIntensity: 0.135, flatShading: true, roughness: 1, metalness: 0, map: textures.savanna 
+    }), squareCount);
+    
+    this.desertsMesh = new THREE.InstancedMesh(squareGeometry, new THREE.MeshPhysicalMaterial({ 
+      envMap: envmap, envMapIntensity: 0.135, flatShading: true, roughness: 1, metalness: 0, map: textures.deserts 
+    }), squareCount);
+    
+    this.saltwaterMesh = new THREE.InstancedMesh(squareGeometry, new THREE.MeshPhysicalMaterial({ 
+      envMap: envmap, envMapIntensity: 0.3, flatShading: false, roughness: 0.0, metalness: 0.0, 
+      map: textures.saltwater, transparent: true, opacity: 0.8, color: 0x20a0ff
+    }), squareCount);
+    
+    this.freshwaterMesh = new THREE.InstancedMesh(squareGeometry, new THREE.MeshPhysicalMaterial({ 
+      envMap: envmap, envMapIntensity: 0.3, flatShading: false, roughness: 0.1, metalness: 0.1, 
+      map: textures.freshwater, transparent: true, opacity: 0.8, color: 0x4080ff
     }), squareCount);
 
-    let stoneIndex = 0;
-    let dirtIndex = 0;
-    let dirt2Index = 0;
-    let sandIndex = 0;
-    let grassIndex = 0;
+    // Initialize index counters for each terrain type
+    let mountainsIndex = 0;
+    let tundraIndex = 0;
+    let urbanIndex = 0;
+    let borealForestIndex = 0;
+    let temperateForestIndex = 0;
+    let tropicalRainforestIndex = 0;
+    let croplandIndex = 0;
+    let scrubIndex = 0;
+    let temperateGrasslandIndex = 0;
+    let pasturelandIndex = 0;
+    let savannaIndex = 0;
+    let desertsIndex = 0;
+    let saltwaterIndex = 0;
+    let freshwaterIndex = 0;
     let waterIndex = 0;
 
     // Clear the tile mapping and height cache
@@ -687,7 +984,19 @@ export class SquareMapComponent implements AfterViewInit {
     this.originalHeights.clear();
 
     // Track terrain type counts for debugging
-    const terrainCounts = { stone: 0, dirt: 0, dirt2: 0, sand: 0, grass: 0, water: 0 };
+    const terrainCounts: Record<VisualTerrainType, number> = {
+      saltwater: 0, freshwater: 0, mountains: 0, tundra: 0, urban: 0,
+      borealForest: 0, temperateForest: 0, tropicalRainforest: 0,
+      cropland: 0, scrub: 0, temperateGrassland: 0, pastureland: 0,
+      savanna: 0, deserts: 0
+    };
+    
+    // Track logical terrain types being generated
+    const logicalTerrainCounts: Record<TerrainType, number> = {
+      saltwater: 0, freshwater: 0, borealForest: 0, temperateForest: 0, tropicalRainforest: 0,
+      temperateGrassland: 0, savanna: 0, tundra: 0, deserts: 0, mountains: 0,
+      pastureland: 0, cropland: 0, scrub: 0, urban: 0
+    };
 
     // Pre-calculate the house level height (flat terrain)
     const houseLevelHeight = 0.5; // Same as flat terrain height
@@ -711,45 +1020,64 @@ export class SquareMapComponent implements AfterViewInit {
         
         // Special case: House section area should always be urban stone color  
         if (this.isWithinSectionFootprint(i, j)) {
-          terrainType = 'stone'; // Urban development
+          terrainType = 'urban'; // Urban development
         }
         // Special case: Food production area should always be dirt color
         else if (this.isWithinFoodProductionArea(i, j)) {
-          terrainType = 'dirt';
+          terrainType = 'cropland';
         }
         // Special case: Clothing production area should always be grass color
         else if (this.isWithinClothingArea(i, j)) {
-          terrainType = 'grass'; // Agricultural/textile production
+          terrainType = 'pastureland'; // Agricultural/textile production
         } else if (this.usePopulationSizing) {
           // Use land distribution-based terrain assignment with island layout
           terrainType = this.getTerrainTypeFromNoise(noise, i, j);
-        } else {
-          console.log('Using old position-based terrain assignment');
-          // Use original position-based terrain assignment with proportional areas
-          const quarterSize = halfSize / 2;
-          const halfQuarterSize = quarterSize / 2;
           
-          if (i < -quarterSize && j < -quarterSize) {
-            terrainType = 'stone';
-          } else if (i < 0 && j < 0) {
-            terrainType = 'dirt';
-          } else if (i < halfQuarterSize && j < halfQuarterSize) {
-            terrainType = 'dirt2';
-          } else if (i < quarterSize && j < quarterSize) {
-            terrainType = 'sand';
-          } else {
-            terrainType = 'grass';
+          // Debug logging for natural island generation
+          if (Math.random() < 0.0005 && i >= 0 && j >= 0) { // Log 0.05% of tiles, only positive quadrant
+            const distanceFromCenter = Math.sqrt(i * i + j * j) / halfSize;
+            console.log(`NATURAL ISLAND Debug [${i},${j}]: dist=${distanceFromCenter.toFixed(3)}, terrain="${terrainType}", noise=${noise.toFixed(3)}`);
           }
+        } else {
+          // Fallback - should not be used with population sizing enabled
+          terrainType = 'temperateGrassland';
         }
         
-        // Set height based on terrain type
+        // Set height based on terrain type - with 1:1 mapping we can use terrain type directly
         let baseHeight: number;
-        if (terrainType === 'dirt2') {
-          // Ocean tiles stay at water level (0.5m)
-          baseHeight = 0.5;
+        if (terrainType === 'saltwater' || terrainType === 'freshwater') {
+          // Water tiles stay at water level
+          baseHeight = 0.1;
         } else {
-          // All land terrain is raised 1m above water level
-          baseHeight = 1.5;
+          // For natural island terrain, get the logical type to determine proper elevation
+          if (this.usePopulationSizing && !this.isWithinSectionFootprint(i, j) && !this.isWithinFoodProductionArea(i, j) && !this.isWithinClothingArea(i, j)) {
+            // With 1:1 mapping, we can use the visual terrain type directly for height
+            switch(terrainType) {
+              case 'mountains': baseHeight = 8.0; break;           // True mountains - highest peaks
+              case 'tundra': baseHeight = 6.5; break;              // High alpine areas
+              case 'urban': baseHeight = 5.5; break;               // Elevated house area
+              case 'borealForest': baseHeight = 4.5; break;        // Mountain forest slopes
+              case 'temperateForest': baseHeight = 3.5; break;     // Mid-elevation forests
+              case 'tropicalRainforest': baseHeight = 3.0; break;  // Lush valleys
+              case 'temperateGrassland': baseHeight = 2.5; break;  // Rolling hills
+              case 'pastureland': baseHeight = 2.0; break;         // Grazing areas
+              case 'cropland': baseHeight = 1.8; break;            // Farmland
+              case 'savanna': baseHeight = 1.5; break;             // Dry grasslands
+              case 'scrub': baseHeight = 1.0; break;               // Coastal shrubland
+              case 'deserts': baseHeight = 0.8; break;             // Dry desert areas
+              default: baseHeight = 2.5; break;
+            }
+          } else {
+            // Use simplified height for special areas
+            switch(terrainType) {
+              case 'mountains': case 'tundra': case 'urban': baseHeight = 2.0; break;
+              case 'borealForest': case 'temperateForest': case 'tropicalRainforest': baseHeight = 1.0; break;
+              case 'cropland': case 'scrub': baseHeight = 0.8; break;
+              case 'temperateGrassland': case 'pastureland': baseHeight = 0.6; break;
+              case 'savanna': case 'deserts': baseHeight = 0.4; break;
+              default: baseHeight = 1.0; break;
+            }
+          }
         }
         
         this.originalHeights.set(tileKey, baseHeight);
@@ -776,61 +1104,174 @@ export class SquareMapComponent implements AfterViewInit {
 
         // Debug logging for center tile
         if (i === 0 && j === 0) {
-          console.log('Center tile terrain type:', terrainType, 'noise:', noise);
+          console.log('Center tile terrain type:', terrainType, 'noise:', noise, 'height:', height.toFixed(2));
+        }
+        
+        // Enhanced height debugging - log more tiles to see height variety
+        if (Math.random() < 0.002) { // Log 0.2% of tiles to see height variety across terrain types
+          const distanceFromCenter = Math.sqrt(i * i + j * j) / halfSize;
+          
+          // Also get logical terrain type for comparison
+          let logicalType = 'unknown';
+          if (this.usePopulationSizing && !this.isWithinSectionFootprint(i, j) && !this.isWithinFoodProductionArea(i, j) && !this.isWithinClothingArea(i, j)) {
+            const adjustedDistance = Math.sqrt(i * i + j * j) / halfSize;
+            logicalType = this.getLogicalTerrainType(noise, i, j, adjustedDistance);
+          }
+          
+          console.log(`HEIGHT ANALYSIS [${i},${j}]: visual="${terrainType}", logical="${logicalType}", dist=${distanceFromCenter.toFixed(2)}, height=${height.toFixed(2)}m, baseHeight=${baseHeight.toFixed(2)}m`);
         }
 
         // Assign to appropriate mesh based on terrain type
         terrainCounts[terrainType]++;
         switch (terrainType) {
-          case 'stone':
-            this.stoneMesh.setMatrixAt(stoneIndex, matrix);
-            this.tileToInstanceMap.set(tileKey, {mesh: this.stoneMesh, index: stoneIndex});
-            stoneIndex++;
+          case 'mountains':
+            this.mountainsMesh.setMatrixAt(mountainsIndex, matrix);
+            this.tileToInstanceMap.set(tileKey, {mesh: this.mountainsMesh, index: mountainsIndex});
+            mountainsIndex++;
             break;
-          case 'dirt':
-            this.dirtMesh.setMatrixAt(dirtIndex, matrix);
-            this.tileToInstanceMap.set(tileKey, {mesh: this.dirtMesh, index: dirtIndex});
-            dirtIndex++;
+          case 'tundra':
+            this.tundraMesh.setMatrixAt(tundraIndex, matrix);
+            this.tileToInstanceMap.set(tileKey, {mesh: this.tundraMesh, index: tundraIndex});
+            tundraIndex++;
             break;
-          case 'grass':
-            this.grassMesh.setMatrixAt(grassIndex, matrix);
-            this.tileToInstanceMap.set(tileKey, {mesh: this.grassMesh, index: grassIndex});
-            grassIndex++;
+          case 'urban':
+            this.urbanMesh.setMatrixAt(urbanIndex, matrix);
+            this.tileToInstanceMap.set(tileKey, {mesh: this.urbanMesh, index: urbanIndex});
+            urbanIndex++;
             break;
-          case 'sand':
-            this.sandMesh.setMatrixAt(sandIndex, matrix);
-            this.tileToInstanceMap.set(tileKey, {mesh: this.sandMesh, index: sandIndex});
-            sandIndex++;
+          case 'cropland':
+            this.croplandMesh.setMatrixAt(croplandIndex, matrix);
+            this.tileToInstanceMap.set(tileKey, {mesh: this.croplandMesh, index: croplandIndex});
+            croplandIndex++;
             break;
-          case 'dirt2':
-            this.dirt2Mesh.setMatrixAt(dirt2Index, matrix);
-            this.tileToInstanceMap.set(tileKey, {mesh: this.dirt2Mesh, index: dirt2Index});
-            dirt2Index++;
+          case 'scrub':
+            this.scrubMesh.setMatrixAt(scrubIndex, matrix);
+            this.tileToInstanceMap.set(tileKey, {mesh: this.scrubMesh, index: scrubIndex});
+            scrubIndex++;
             break;
-          case 'water':
-            this.waterMesh.setMatrixAt(waterIndex, matrix);
-            this.tileToInstanceMap.set(tileKey, {mesh: this.waterMesh, index: waterIndex});
-            waterIndex++;
+          case 'temperateGrassland':
+            this.temperateGrasslandMesh.setMatrixAt(temperateGrasslandIndex, matrix);
+            this.tileToInstanceMap.set(tileKey, {mesh: this.temperateGrasslandMesh, index: temperateGrasslandIndex});
+            temperateGrasslandIndex++;
+            break;
+          case 'pastureland':
+            this.pasturelandMesh.setMatrixAt(pasturelandIndex, matrix);
+            this.tileToInstanceMap.set(tileKey, {mesh: this.pasturelandMesh, index: pasturelandIndex});
+            pasturelandIndex++;
+            break;
+          case 'savanna':
+            this.savannaMesh.setMatrixAt(savannaIndex, matrix);
+            this.tileToInstanceMap.set(tileKey, {mesh: this.savannaMesh, index: savannaIndex});
+            savannaIndex++;
+            break;
+          case 'deserts':
+            this.desertsMesh.setMatrixAt(desertsIndex, matrix);
+            this.tileToInstanceMap.set(tileKey, {mesh: this.desertsMesh, index: desertsIndex});
+            desertsIndex++;
+            break;
+          case 'borealForest':
+            this.borealForestMesh.setMatrixAt(borealForestIndex, matrix);
+            this.tileToInstanceMap.set(tileKey, {mesh: this.borealForestMesh, index: borealForestIndex});
+            borealForestIndex++;
+            break;
+          case 'temperateForest':
+            this.temperateForestMesh.setMatrixAt(temperateForestIndex, matrix);
+            this.tileToInstanceMap.set(tileKey, {mesh: this.temperateForestMesh, index: temperateForestIndex});
+            temperateForestIndex++;
+            break;
+          case 'tropicalRainforest':
+            this.tropicalRainforestMesh.setMatrixAt(tropicalRainforestIndex, matrix);
+            this.tileToInstanceMap.set(tileKey, {mesh: this.tropicalRainforestMesh, index: tropicalRainforestIndex});
+            tropicalRainforestIndex++;
+            break;
+          case 'saltwater':
+            this.saltwaterMesh.setMatrixAt(saltwaterIndex, matrix);
+            this.tileToInstanceMap.set(tileKey, {mesh: this.saltwaterMesh, index: saltwaterIndex});
+            saltwaterIndex++;
+            break;
+          case 'freshwater':
+            this.freshwaterMesh.setMatrixAt(freshwaterIndex, matrix);
+            this.tileToInstanceMap.set(tileKey, {mesh: this.freshwaterMesh, index: freshwaterIndex});
+            freshwaterIndex++;
             break;
         }
       }
     }
 
-    this.stoneMesh.instanceMatrix.needsUpdate = true;
-    this.dirtMesh.instanceMatrix.needsUpdate = true;
-    this.dirt2Mesh.instanceMatrix.needsUpdate = true;
-    this.sandMesh.instanceMatrix.needsUpdate = true;
-    this.grassMesh.instanceMatrix.needsUpdate = true;
-    this.waterMesh.instanceMatrix.needsUpdate = true;
+    // Update all terrain mesh matrices
+    this.mountainsMesh.instanceMatrix.needsUpdate = true;
+    this.tundraMesh.instanceMatrix.needsUpdate = true;
+    this.urbanMesh.instanceMatrix.needsUpdate = true;
+    this.borealForestMesh.instanceMatrix.needsUpdate = true;
+    this.temperateForestMesh.instanceMatrix.needsUpdate = true;
+    this.tropicalRainforestMesh.instanceMatrix.needsUpdate = true;
+    this.croplandMesh.instanceMatrix.needsUpdate = true;
+    this.scrubMesh.instanceMatrix.needsUpdate = true;
+    this.temperateGrasslandMesh.instanceMatrix.needsUpdate = true;
+    this.pasturelandMesh.instanceMatrix.needsUpdate = true;
+    this.savannaMesh.instanceMatrix.needsUpdate = true;
+    this.desertsMesh.instanceMatrix.needsUpdate = true;
+    this.saltwaterMesh.instanceMatrix.needsUpdate = true;
+    this.freshwaterMesh.instanceMatrix.needsUpdate = true;
 
     console.log('Terrain distribution:', terrainCounts);
+    
+    // Debug: Log key map parameters
+    console.log(`=== MAP SIZE DEBUG ===`);
+    console.log(`Map size: ${this.populationBasedMapSize}x${this.populationBasedMapSize}`);
+    console.log(`Map half size: ${this.mapHalfSize}`);
+    console.log(`Center coordinates: (${this.populationBasedMapSize/2}, ${this.populationBasedMapSize/2})`);
+    console.log(`======================`);
+    
+    // Display which terrain types are actually present
+    this.logPresentTerrainTypes(terrainCounts);
+    
+    console.log('=== NATURAL ISLAND TERRAIN BREAKDOWN ===');
+    
+    // Group by visual mesh type for better understanding
+    const mountainCount = terrainCounts.mountains;
+    const tundraCount = terrainCounts.tundra;
+    const urbanCount = terrainCounts.urban;
+    const stoneTotal = mountainCount + tundraCount + urbanCount;
+    
+    const croplandCount = terrainCounts.cropland;
+    const scrubCount = terrainCounts.scrub;
+    const dirtTotal = croplandCount + scrubCount;
+    
+    const grasslandCount = terrainCounts.temperateGrassland;
+    const pasturelandCount = terrainCounts.pastureland;
+    const dirt2Total = grasslandCount + pasturelandCount;
+    
+    const savannaCount = terrainCounts.savanna;
+    const desertsCount = terrainCounts.deserts;
+    const sandTotal = savannaCount + desertsCount;
+    
+    const borealForestCount = terrainCounts.borealForest;
+    const temperateForestCount = terrainCounts.temperateForest;
+    const tropicalRainforestCount = terrainCounts.tropicalRainforest;
+    const grassTotal = borealForestCount + temperateForestCount + tropicalRainforestCount;
+    
+    const saltwaterCount = terrainCounts.saltwater;
+    const freshwaterCount = terrainCounts.freshwater;
+    const waterTotal = saltwaterCount + freshwaterCount;
+    
+    console.log(`Stone mesh (mountains/tundra/urban): ${stoneTotal} tiles (${mountainCount} mountains, ${tundraCount} tundra, ${urbanCount} urban)`);
+    console.log(`Dirt mesh (cropland/scrub): ${dirtTotal} tiles (${croplandCount} cropland, ${scrubCount} scrub)`);
+    console.log(`Dirt2 mesh (grasslands/pasture): ${dirt2Total} tiles (${grasslandCount} grassland, ${pasturelandCount} pasture)`);
+    console.log(`Sand mesh (savanna/deserts): ${sandTotal} tiles (${savannaCount} savanna, ${desertsCount} deserts)`);
+    console.log(`Grass mesh (all forests): ${grassTotal} tiles (${borealForestCount} boreal, ${temperateForestCount} temperate, ${tropicalRainforestCount} tropical)`);
+    console.log(`Water mesh (saltwater/freshwater): ${waterTotal} tiles (${saltwaterCount} saltwater, ${freshwaterCount} freshwater)`);
+    console.log('==========================================');
+    
+    // Generate visual map representation
+    this.generateVisualMap();
     const totalTiles = Object.values(terrainCounts).reduce((sum, count) => sum + count, 0);
     console.log('Total tiles:', totalTiles);
     
     // Log precise tile counting results
     if (this.usePopulationSizing) {
-      const actualWaterPercent = (terrainCounts.dirt2 / totalTiles * 100).toFixed(2);
-      const actualLandPercent = ((totalTiles - terrainCounts.dirt2) / totalTiles * 100).toFixed(2);
+      const actualWaterPercent = (waterTotal / totalTiles * 100).toFixed(2);
+      const actualLandPercent = ((totalTiles - waterTotal) / totalTiles * 100).toFixed(2);
       const targetWaterPercent = 70.9;
       const targetLandPercent = 29.1;
       
@@ -844,19 +1285,19 @@ export class SquareMapComponent implements AfterViewInit {
       console.log(`Max land tiles allowed: ${this.maxLandTiles}`);
       console.log(`Land tiles from counter: ${this.landTileCount}`);
       console.log(`Water tiles from counter: ${this.oceanTileCount}`);
-      console.log(`Water tiles from terrain count: ${terrainCounts.dirt2}`);
-      console.log(`Counter vs terrain count match: ${this.oceanTileCount === terrainCounts.dirt2}`);
+      console.log(`Water tiles from terrain count: ${waterTotal}`);
+      console.log(`Counter vs terrain count match: ${this.oceanTileCount === waterTotal}`);
       console.log('======================================');
     }
     
     // Calculate actual percentages
     this.actualTerrainPercentages = {
-      stone: parseFloat((terrainCounts.stone / totalTiles * 100).toFixed(1)),
-      dirt: parseFloat((terrainCounts.dirt / totalTiles * 100).toFixed(1)),
-      dirt2: parseFloat((terrainCounts.dirt2 / totalTiles * 100).toFixed(1)), // Water (saltwater + freshwater)
-      sand: parseFloat((terrainCounts.sand / totalTiles * 100).toFixed(1)),
-      grass: parseFloat((terrainCounts.grass / totalTiles * 100).toFixed(1)),
-      water: parseFloat((terrainCounts.water / totalTiles * 100).toFixed(1))
+      stone: parseFloat((stoneTotal / totalTiles * 100).toFixed(1)),
+      dirt: parseFloat((dirtTotal / totalTiles * 100).toFixed(1)),
+      dirt2: parseFloat((dirt2Total / totalTiles * 100).toFixed(1)), // Grasslands/Cropland
+      sand: parseFloat((sandTotal / totalTiles * 100).toFixed(1)),
+      grass: parseFloat((grassTotal / totalTiles * 100).toFixed(1)),
+      water: parseFloat((waterTotal / totalTiles * 100).toFixed(1)) // Water (saltwater + freshwater)
     };
     
     // Calculate expected percentages from biome breakdown
@@ -881,7 +1322,12 @@ export class SquareMapComponent implements AfterViewInit {
     console.log('Grass (Forests/Grasslands):', this.actualTerrainPercentages.grass + '%', '|', this.expectedTerrainPercentages.grass + '%', '|', (this.actualTerrainPercentages.grass - this.expectedTerrainPercentages.grass).toFixed(1) + '%');
     console.log('========================================');
 
-    this.scene.add(this.stoneMesh, this.dirtMesh, this.dirt2Mesh, this.sandMesh, this.grassMesh, this.waterMesh);
+    this.scene.add(
+      this.mountainsMesh, this.tundraMesh, this.urbanMesh,
+      this.borealForestMesh, this.temperateForestMesh, this.tropicalRainforestMesh,
+      this.croplandMesh, this.scrubMesh, this.temperateGrasslandMesh, this.pasturelandMesh,
+      this.savannaMesh, this.desertsMesh, this.saltwaterMesh, this.freshwaterMesh
+    );
     console.log('Terrain meshes added to scene');
     console.log('Scene children count:', this.scene.children.length);
 
@@ -908,7 +1354,7 @@ export class SquareMapComponent implements AfterViewInit {
     }
     
     // For house size/position changes, update only affected terrain tiles
-    this.updateHouseTerrainSelectively();
+    // this.updateHouseTerrainSelectively(); // DISABLED: was overriding natural terrain heights
     
     // Update food production area terrain colors when food area size changes
     this.updateFoodProductionAreaTerrain();
@@ -1047,11 +1493,11 @@ export class SquareMapComponent implements AfterViewInit {
         
         if (tileInfo) {
           const shouldBeDirt = this.isWithinFoodProductionArea(i, j);
-          const currentlyDirt = tileInfo.mesh === this.dirtMesh;
+          const currentlyDirt = tileInfo.mesh === this.croplandMesh || tileInfo.mesh === this.scrubMesh;
           
           // If it should be dirt but isn't, or shouldn't be dirt but is, update it
           if (shouldBeDirt && !currentlyDirt) {
-            this.reassignTileToMesh(i, j, 'dirt');
+            this.reassignTileToMesh(i, j, 'cropland');
           } else if (!shouldBeDirt && currentlyDirt && !this.isWithinHouseFootprint(i, j) && !this.isWithinSectionFootprint(i, j)) {
             // If it's currently dirt but shouldn't be (and not house/section), reassign based on normal terrain logic
             this.reassignTileToNormalTerrain(i, j);
@@ -1070,15 +1516,23 @@ export class SquareMapComponent implements AfterViewInit {
     const currentMesh = tileInfo.mesh;
     const currentIndex = tileInfo.index;
     
-    // Get target mesh
+    // Get target mesh for specific terrain type
     let targetMesh: THREE.InstancedMesh;
     switch (targetTerrainType) {
-      case 'stone': targetMesh = this.stoneMesh; break;
-      case 'sand': targetMesh = this.sandMesh; break;
-      case 'dirt': targetMesh = this.dirtMesh; break;
-      case 'grass': targetMesh = this.grassMesh; break;
-      case 'dirt2': targetMesh = this.dirt2Mesh; break;
-      case 'water': targetMesh = this.waterMesh; break;
+      case 'mountains': targetMesh = this.mountainsMesh; break;
+      case 'tundra': targetMesh = this.tundraMesh; break;
+      case 'urban': targetMesh = this.urbanMesh; break;
+      case 'cropland': targetMesh = this.croplandMesh; break;
+      case 'scrub': targetMesh = this.scrubMesh; break;
+      case 'temperateGrassland': targetMesh = this.temperateGrasslandMesh; break;
+      case 'pastureland': targetMesh = this.pasturelandMesh; break;
+      case 'savanna': targetMesh = this.savannaMesh; break;
+      case 'deserts': targetMesh = this.desertsMesh; break;
+      case 'borealForest': targetMesh = this.borealForestMesh; break;
+      case 'temperateForest': targetMesh = this.temperateForestMesh; break;
+      case 'tropicalRainforest': targetMesh = this.tropicalRainforestMesh; break;
+      case 'saltwater': targetMesh = this.saltwaterMesh; break;
+      case 'freshwater': targetMesh = this.freshwaterMesh; break;
       default: 
         console.error('Unknown terrain type:', targetTerrainType);
         return;
@@ -1124,11 +1578,11 @@ export class SquareMapComponent implements AfterViewInit {
     
     // Special case: House section area should always be urban stone color
     if (this.isWithinSectionFootprint(tileX, tileZ)) {
-      terrainType = 'stone'; // Urban development
+      terrainType = 'urban'; // Urban development
     }
     // Special case: Clothing production area should always be grass color
     else if (this.isWithinClothingArea(tileX, tileZ)) {
-      terrainType = 'grass'; // Agricultural/textile production
+      terrainType = 'temperateForest'; // Agricultural/textile production
     } else if (this.usePopulationSizing) {
       // Use land distribution-based terrain assignment with island layout
       terrainType = this.getTerrainTypeFromNoise(noise, tileX, tileZ);
@@ -1138,15 +1592,15 @@ export class SquareMapComponent implements AfterViewInit {
       const halfQuarterSize = quarterSize / 2;
       
       if (tileX < -quarterSize && tileZ < -quarterSize) {
-        terrainType = 'stone';
+        terrainType = 'mountains';
       } else if (tileX < 0 && tileZ < 0) {
-        terrainType = 'dirt';
+        terrainType = 'cropland';
       } else if (tileX < quarterSize && tileZ < quarterSize) {
-        terrainType = 'grass';
+        terrainType = 'temperateForest';
       } else if (tileX < halfSize - halfQuarterSize && tileZ < halfSize - halfQuarterSize) {
-        terrainType = 'sand';
+        terrainType = 'savanna';
       } else {
-        terrainType = 'dirt2';
+        terrainType = 'temperateGrassland';
       }
     }
     
@@ -1154,85 +1608,10 @@ export class SquareMapComponent implements AfterViewInit {
   }
 
   updateHouseTerrainSelectively(): void {
-    if (!this.stoneMesh || this.tileToInstanceMap.size === 0 || this.originalHeights.size === 0) {
-      // If meshes don't exist yet, do full update
-      this.updateMap();
-      return;
-    }
-
-    const newHouseFootprint = new Set<string>();
-    const newSectionFootprint = new Set<string>();
-    const newFoodAreaFootprint = new Set<string>();
-    const newClothingAreaFootprint = new Set<string>();
-    const houseLevelHeight = 0.5; // Flat terrain height
-
-    // Calculate new house footprint
-    if (this.showHouse) {
-      const halfSize = this.mapHalfSize;
-      for(let i = -halfSize; i <= halfSize; i++) {
-        for(let j = -halfSize; j <= halfSize; j++) {
-          if (this.isWithinHouseFootprint(i, j)) {
-            newHouseFootprint.add(`${i},${j}`);
-          }
-          if (this.isWithinSectionFootprint(i, j)) {
-            newSectionFootprint.add(`${i},${j}`);
-          }
-          if (this.isWithinFoodProductionArea(i, j)) {
-            newFoodAreaFootprint.add(`${i},${j}`);
-          }
-          if (this.isWithinClothingArea(i, j)) {
-            newClothingAreaFootprint.add(`${i},${j}`);
-          }
-        }
-      }
-    }
-
-    // Combine all level areas (house + section + food area + clothing area)
-    const newLevelFootprint = new Set([...newHouseFootprint, ...newSectionFootprint, ...newFoodAreaFootprint, ...newClothingAreaFootprint]);
-    const oldLevelFootprint = new Set([...this.currentHouseFootprint, ...this.currentSectionFootprint]);
-
-    // Find tiles that need updating (old level areas + new level areas)
-    const tilesToUpdate = new Set([...oldLevelFootprint, ...newLevelFootprint]);
-    const updatedMeshes = new Set<THREE.InstancedMesh>();
-
-    // Update affected tiles
-    for (const tileKey of tilesToUpdate) {
-      const instanceInfo = this.tileToInstanceMap.get(tileKey);
-      const originalHeight = this.originalHeights.get(tileKey);
-      
-      if (!instanceInfo || originalHeight === undefined) continue;
-
-      const [i, j] = tileKey.split(',').map(Number);
-      const position = this.tileToPosition(i, j);
-      
-      let height: number;
-      if (newLevelFootprint.has(tileKey)) {
-        // Use level height for house, section, or food production area
-        height = houseLevelHeight;
-      } else {
-        // Use cached original height for non-level areas
-        height = originalHeight;
-      }
-
-      const matrix = new THREE.Matrix4().makeTranslation(position.x, height * 0.5, position.y);
-      matrix.scale(new THREE.Vector3(1, height, 1));
-
-      // Update the specific instance
-      instanceInfo.mesh.setMatrixAt(instanceInfo.index, matrix);
-      updatedMeshes.add(instanceInfo.mesh);
-    }
-
-    // Mark updated meshes as needing update
-    for (const mesh of updatedMeshes) {
-      mesh.instanceMatrix.needsUpdate = true;
-    }
-
-    // Update current footprints
-    this.currentHouseFootprint = newHouseFootprint;
-    this.currentSectionFootprint = newSectionFootprint;
-
-    // Update house appearance
-    this.updateHouseAppearance();
+    // DISABLED: This method was overriding terrain heights, preventing natural elevation
+    // If you need building height adjustments, re-enable with terrain-aware height calculation
+    console.log('updateHouseTerrainSelectively() disabled to preserve natural terrain heights');
+    return;
   }
 
   // Debounced update to prevent too many rapid updates
@@ -1929,11 +2308,26 @@ export class SquareMapComponent implements AfterViewInit {
     // Get terrain type for this position
     const terrainType = this.getTerrainTypeFromNoise(tileX, tileZ);
     
-    // Ocean tiles stay at 0.5m, land tiles are at 1.5m (raised by 1m)
-    if (terrainType === 'dirt2') { // Ocean/water tiles
+    // Water tiles stay at 0.5m, land tiles are elevated based on terrain type
+    if (terrainType === 'saltwater' || terrainType === 'freshwater') { // Ocean/water tiles
       return 0.5;
-    } else { // All land tiles (dirt, grass, sand, stone)
-      return 1.5;
+    } else { // All land tiles - use terrain-specific heights
+      // Simple height mapping for terrain height queries
+      switch(terrainType) {
+        case 'mountains': return 8.5;
+        case 'tundra': return 7.0;
+        case 'urban': return 6.0;
+        case 'borealForest': return 5.0;
+        case 'temperateForest': return 4.0;
+        case 'tropicalRainforest': return 3.5;
+        case 'temperateGrassland': return 3.0;
+        case 'pastureland': return 2.5;
+        case 'cropland': return 2.3;
+        case 'savanna': return 2.0;
+        case 'scrub': return 1.5;
+        case 'deserts': return 1.3;
+        default: return 2.0;
+      }
     }
   }
 
@@ -2026,5 +2420,34 @@ export class SquareMapComponent implements AfterViewInit {
   getHouseLevelHeight(): number {
     // Return elevated terrain height for house area (land tiles are at 1.5m)
     return 1.5;
+  }
+
+  private logPresentTerrainTypes(terrainCounts: Record<VisualTerrainType, number>): void {
+    console.log('=== TERRAIN TYPES PRESENT ON CURRENT ISLAND ===');
+    
+    const presentTerrains = Object.entries(terrainCounts)
+      .filter(([_, count]) => count > 0)
+      .sort(([_, countA], [__, countB]) => countB - countA);
+    
+    console.log(`Total terrain types present: ${presentTerrains.length} out of 14 possible`);
+    console.log('Present terrain types (sorted by frequency):');
+    
+    presentTerrains.forEach(([terrainType, count]) => {
+      const percentage = ((count / Object.values(terrainCounts).reduce((a, b) => a + b, 0)) * 100).toFixed(1);
+      console.log(`  • ${terrainType}: ${count} tiles (${percentage}%)`);
+    });
+
+    const missingTerrains = Object.keys(terrainCounts)
+      .filter(terrainType => terrainCounts[terrainType as VisualTerrainType] === 0);
+    
+    if (missingTerrains.length > 0) {
+      console.log('\nMissing terrain types:');
+      missingTerrains.forEach(terrainType => {
+        console.log(`  ✗ ${terrainType}: 0 tiles`);
+      });
+    } else {
+      console.log('\n✅ All 14 terrain types are present on this island!');
+    }
+    console.log('==========================================');
   }
 }

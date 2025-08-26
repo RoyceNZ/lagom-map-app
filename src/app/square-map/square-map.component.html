@@ -1,44 +1,15 @@
 <div class="square-map-container">
   <div #rendererContainer id="rendererContainer"></div>
   <div class="filters">
-    <label>
-      Max Height:
-      <input type="range" min="1" max="20" [(ngModel)]="maxHeight" (input)="updateMap()" />
-      <input type="number" min="1" max="20" [(ngModel)]="maxHeight" (input)="updateMap()" />
-    </label>
-    <label>
-      Stone Height:
-      <input type="range" min="0" max="1" step="0.01" [(ngModel)]="stoneHeight" (input)="updateMap()" />
-      <input type="number" min="0" max="1" step="0.01" [(ngModel)]="stoneHeight" (input)="updateMap()" />
-    </label>
-    <label>
-      Dirt Height:
-      <input type="range" min="0" max="1" step="0.01" [(ngModel)]="dirtHeight" (input)="updateMap()" />
-      <input type="number" min="0" max="1" step="0.01" [(ngModel)]="dirtHeight" (input)="updateMap()" />
-    </label>
-    <label>
-      Grass Height:
-      <input type="range" min="0" max="1" step="0.01" [(ngModel)]="grassHeight" (input)="updateMap()" />
-      <input type="number" min="0" max="1" step="0.01" [(ngModel)]="grassHeight" (input)="updateMap()" />
-    </label>
-    <label>
-      Stone Area:
-      <input type="number" [(ngModel)]="stoneArea" />
-    </label>
-    <label>
-      Dirt Area:
-      <input type="number" [(ngModel)]="dirtArea" />
-    </label>
-    <label>
-      Grass Area:
-      <input type="number" [(ngModel)]="grassArea" />
-    </label>
-    <label>
-      Sand Area:
-      <input type="number" [(ngModel)]="sandArea" />
-    </label>
-    <button (click)="updateMap()">Update Map</button>
     
+    <!-- Debug Controls -->
+    <div class="debug-controls" style="margin-bottom: 20px; padding: 10px; background: #f5f5f5; border-radius: 5px;">
+      <h4>Debug Tools</h4>
+      <button (click)="updateMap()" style="padding: 8px 16px; margin-right: 10px; background: #007bff; color: white; border: none; border-radius: 4px; cursor: pointer;">
+        🔄 Regenerate Map & Check Terrain Types
+      </button>
+    </div>
+      
     <!-- Population-Based Map Sizing -->
     <div class="population-controls">
       <h4>Population-Based Map Sizing</h4>
