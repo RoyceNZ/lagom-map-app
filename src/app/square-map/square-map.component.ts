@@ -6,6 +6,44 @@ import * as THREE from 'three';
 import { RGBELoader } from 'three/examples/jsm/loaders/RGBELoader.js';
 import { OrbitControls } from 'three/examples/jsm/controls/OrbitControls.js';
 
+// Define comprehensive terrain types based on Earth's biomes
+export type TerrainType = 
+  | 'saltwater'
+  | 'freshwater'
+  | 'borealForest'
+  | 'temperateForest'
+  | 'tropicalRainforest'
+  | 'temperateGrassland'
+  | 'savanna'
+  | 'tundra'
+  | 'deserts'
+  | 'mountains'
+  | 'pastureland'
+  | 'cropland'
+  | 'scrub'
+  | 'urban';
+
+// Visual representation mapping (Three.js material types)
+export type VisualTerrainType = 'stone' | 'dirt' | 'dirt2' | 'sand' | 'grass' | 'water';
+
+// Map terrain types to visual representation (Three.js materials)
+export const TERRAIN_VISUAL_MAPPING: Record<TerrainType, VisualTerrainType> = {
+  saltwater: 'dirt2',           // Blue water texture (ocean)
+  freshwater: 'water',          // Alternative water texture (lakes/rivers)  
+  borealForest: 'grass',        // Green forest texture
+  temperateForest: 'grass',     // Green forest texture
+  tropicalRainforest: 'grass',  // Green forest texture
+  temperateGrassland: 'grass',  // Green grass texture
+  savanna: 'sand',              // Sandy/tan texture for dry grassland
+  tundra: 'stone',              // Grey/rocky texture for cold climate
+  deserts: 'sand',              // Sandy texture
+  mountains: 'stone',           // Rocky/grey texture
+  pastureland: 'grass',         // Green grass texture
+  cropland: 'dirt',             // Brown dirt texture for farmland
+  scrub: 'sand',                // Sandy texture for dry vegetation  
+  urban: 'stone'                // Grey/stone texture for built areas
+} as const;
+
 @Component({
   selector: 'app-square-map',
   imports: [FormsModule, CommonModule],
@@ -85,6 +123,7 @@ export class SquareMapComponent implements AfterViewInit {
   private dirt2Mesh!: THREE.InstancedMesh;
   private sandMesh!: THREE.InstancedMesh;
   private grassMesh!: THREE.InstancedMesh;
+  private waterMesh!: THREE.InstancedMesh;
   private currentHouseFootprint: Set<string> = new Set();
   private currentSectionFootprint: Set<string> = new Set();
   private tileToInstanceMap: Map<string, {mesh: THREE.InstancedMesh, index: number}> = new Map();
@@ -96,6 +135,21 @@ export class SquareMapComponent implements AfterViewInit {
   sandArea = 80;
 
   light!: THREE.DirectionalLight;
+
+  // Terrain distribution tracking
+  actualTerrainPercentages: { stone: number; dirt: number; dirt2: number; sand: number; grass: number; water: number } = 
+    { stone: 0, dirt: 0, dirt2: 0, sand: 0, grass: 0, water: 0 };
+  expectedTerrainPercentages: { stone: number; dirt: number; dirt2: number; sand: number; grass: number; water: number } = 
+    { stone: 0, dirt: 0, dirt2: 0, sand: 0, grass: 0, water: 0 };
+
+  // Precise tile counting for ocean percentage enforcement
+  private oceanTileCount = 0;
+  private totalTileCount = 0;
+  private maxOceanTiles = 0;
+  private landTileCount = 0;
+  private maxLandTiles = 0;
+  private landTileMap?: Map<string, boolean>;
+  private optimalOceanThreshold?: number;
 
   // Getter to ensure section is never smaller than house
   get minSectionArea(): number {
@@ -115,6 +169,11 @@ export class SquareMapComponent implements AfterViewInit {
   // Get clothing production area
   get clothingProductionArea(): number {
     return this.clothingRequirements[this.selectedClothingConsumption as keyof typeof this.clothingRequirements] || 5;
+  }
+
+  // Helper method for template Math operations
+  getAbsDifference(actual: number, expected: number): number {
+    return Math.abs(actual - expected);
   }
 
   // Population-based calculations
@@ -235,148 +294,221 @@ export class SquareMapComponent implements AfterViewInit {
     return 1;
   }
 
-  // Method to determine terrain type based on land distribution
-  getTerrainTypeFromNoise(noiseValue: number, x: number = 0, z: number = 0): 'stone' | 'sand' | 'dirt' | 'grass' | 'dirt2' {
-    const breakdown = this.landBreakdownPerPerson;
-    const total = Object.values(breakdown).reduce((sum, val) => sum + val, 0);
+  // Calculate the optimal ocean distance threshold to achieve exactly 70.9% ocean
+  private calculateOptimalOceanThreshold(): number {
+    const mapSize = this.populationBasedMapSize;
+    const halfSize = this.mapHalfSize;
+    const totalTiles = mapSize * mapSize;
+    const targetWaterTiles = Math.floor(totalTiles * 0.709);
     
-    if (noiseValue === 0) {
-      console.log('First call to getTerrainTypeFromNoise, breakdown:', breakdown);
-      console.log('Total:', total);
-    }
+    // Count freshwater tiles by simulating freshwater placement
+    let freshwaterCount = 0;
     
-    // Create an island layout with natural terrain distribution
-    const centerX = 0;
-    const centerZ = 0;
-    const maxRadius = Math.sqrt(2) * 125; // Half diagonal of the map
-    const distanceFromCenter = Math.sqrt((x - centerX) ** 2 + (z - centerZ) ** 2);
-    const normalizedDistance = Math.min(distanceFromCenter / maxRadius, 1);
-    
-    // Add some noise for natural boundaries
-    const boundaryNoise = Math.sin(x * 0.05 + z * 0.03) * 0.1 + Math.cos(x * 0.03 - z * 0.05) * 0.08;
-    const adjustedDistance = Math.max(0, Math.min(1, normalizedDistance + boundaryNoise));
-    
-    // === FRESHWATER FEATURES ===
-    
-    // Check if we're in house, section, or food production areas (avoid placing water here)
-    const inHouseArea = this.isWithinHouseFootprint(x, z);
-    const inSectionArea = this.isWithinSectionFootprint(x, z);
-    const inFoodArea = this.isWithinFoodProductionArea(x, z);
-    const inReservedArea = inHouseArea || inSectionArea || inFoodArea;
-    
-    if (!inReservedArea) {
-      // Central Lake (offset from center to avoid house area)
-      const lakeRadius = 12;
-      const lakeCenterX = -30; // Offset from center
-      const lakeCenterZ = 25;
-      const lakeDistance = Math.sqrt((x - lakeCenterX) ** 2 + (z - lakeCenterZ) ** 2);
-      if (lakeDistance <= lakeRadius) {
-        return 'dirt2'; // Freshwater lake
-      }
-      
-      // River 1: Winding north river (from lake to north coast)
-      const river1Width = 2.5;
-      // Create a sinusoidal path from lake to north coast
-      const river1CenterX = lakeCenterX + Math.sin((z - lakeCenterZ) * 0.08) * 15;
-      if (Math.abs(x - river1CenterX) <= river1Width && z >= lakeCenterZ && z <= 125) {
-        return 'dirt2'; // Freshwater river
-      }
-      
-      // River 2: Winding east river (from lake to east coast)
-      const river2Width = 2.5;
-      // Create a sinusoidal path from lake to east coast
-      const river2CenterZ = lakeCenterZ + Math.sin((x - lakeCenterX) * 0.06) * 12;
-      if (Math.abs(z - river2CenterZ) <= river2Width && x >= lakeCenterX && x <= 125) {
-        return 'dirt2'; // Freshwater river
-      }
-      
-      // River 3: Winding southwest river (from lake to southwest coast)
-      const river3Width = 2;
-      // Create a curved path from lake to southwest
-      const river3Progress = Math.max(0, Math.min(1, (Math.sqrt((x - lakeCenterX) ** 2 + (z - lakeCenterZ) ** 2) - lakeRadius) / 80));
-      const river3TargetX = lakeCenterX - 60 - river3Progress * 40;
-      const river3TargetZ = lakeCenterZ - 40 - river3Progress * 60;
-      const river3CenterX = lakeCenterX + (river3TargetX - lakeCenterX) * river3Progress + Math.sin(river3Progress * Math.PI * 3) * 10;
-      const river3CenterZ = lakeCenterZ + (river3TargetZ - lakeCenterZ) * river3Progress + Math.cos(river3Progress * Math.PI * 2.5) * 8;
-      const river3Distance = Math.sqrt((x - river3CenterX) ** 2 + (z - river3CenterZ) ** 2);
-      
-      if (river3Distance <= river3Width && 
-          x >= lakeCenterX - 120 && x <= lakeCenterX && 
-          z >= lakeCenterZ - 120 && z <= lakeCenterZ) {
-        return 'dirt2'; // Freshwater river
-      }
-      
-      // River 4: Winding southeast river (from mountains to southeast coast)
-      const river4Width = 2;
-      const river4StartX = 40;
-      const river4StartZ = -30;
-      // Create a curved path to southeast coast
-      const river4Progress = Math.max(0, Math.min(1, Math.sqrt((x - river4StartX) ** 2 + (z - river4StartZ) ** 2) / 100));
-      const river4TargetX = river4StartX + 70;
-      const river4TargetZ = river4StartZ - 80;
-      const river4CenterX = river4StartX + (river4TargetX - river4StartX) * river4Progress + Math.sin(river4Progress * Math.PI * 2) * 12;
-      const river4CenterZ = river4StartZ + (river4TargetZ - river4StartZ) * river4Progress + Math.cos(river4Progress * Math.PI * 1.8) * 10;
-      const river4Distance = Math.sqrt((x - river4CenterX) ** 2 + (z - river4CenterZ) ** 2);
-      
-      if (river4Distance <= river4Width && 
-          x >= river4StartX && x <= river4StartX + 90 && 
-          z >= river4StartZ - 90 && z <= river4StartZ + 10) {
-        return 'dirt2'; // Freshwater river
+    for (let i = -halfSize; i <= halfSize; i++) {
+      for (let j = -halfSize; j <= halfSize; j++) {
+        const x = i;
+        const z = j;
+        const adjustedDistance = Math.sqrt(x * x + z * z) / halfSize;
+        
+        // Check if this would be a freshwater tile (lakes, rivers, streams)
+        // Main central lake
+        const lakeCenterX = 3;
+        const lakeCenterZ = 6;
+        const lakeRadius = 4;
+        const lakeDistance = Math.sqrt((x - lakeCenterX) ** 2 + (z - lakeCenterZ) ** 2);
+        const lakeShape = Math.sin(Math.atan2(z - lakeCenterZ, x - lakeCenterX) * 4) * 1;
+        if (lakeDistance <= lakeRadius + lakeShape && adjustedDistance <= 0.35) {
+          freshwaterCount++;
+          continue;
+        }
+        
+        // Mountain lakes
+        const mountainLake1X = 12;
+        const mountainLake1Z = 12;
+        const mountainLake1Distance = Math.sqrt((x - mountainLake1X) ** 2 + (z - mountainLake1Z) ** 2);
+        if (mountainLake1Distance <= 2 && adjustedDistance <= 0.18) {
+          freshwaterCount++;
+          continue;
+        }
+        
+        const mountainLake2X = -6;
+        const mountainLake2Z = -10;
+        const mountainLake2Distance = Math.sqrt((x - mountainLake2X) ** 2 + (z - mountainLake2Z) ** 2);
+        if (mountainLake2Distance <= 1.5 && adjustedDistance <= 0.20) {
+          freshwaterCount++;
+          continue;
+        }
+        
+        // Rivers and streams (simplified check)
+        const riverWidth = 1.2;
+        const river1StartX = mountainLake1X;
+        const river1StartZ = mountainLake1Z;
+        const river1EndX = lakeCenterX - lakeRadius;
+        const river1EndZ = lakeCenterZ;
+        const river1Progress = Math.max(0, Math.min(1, (x - river1StartX) / Math.max(1, river1EndX - river1StartX)));
+        const river1CenterX = river1StartX + (river1EndX - river1StartX) * river1Progress + Math.sin(river1Progress * Math.PI * 3) * 2;
+        const river1CenterZ = river1StartZ + (river1EndZ - river1StartZ) * river1Progress + Math.cos(river1Progress * Math.PI * 2) * 1.5;
+        const river1Distance = Math.sqrt((x - river1CenterX) ** 2 + (z - river1CenterZ) ** 2);
+        
+        if (river1Distance <= riverWidth && adjustedDistance <= 0.35 &&
+            ((x - river1StartX) * (river1EndX - river1StartX) + (z - river1StartZ) * (river1EndZ - river1StartZ)) >= 0 &&
+            ((x - river1EndX) * (river1StartX - river1EndX) + (z - river1EndZ) * (river1StartZ - river1EndZ)) >= 0) {
+          freshwaterCount++;
+          continue;
+        }
       }
     }
     
-    // === TERRAIN ZONES ===
+    const targetOceanTiles = targetWaterTiles - freshwaterCount;
     
-    // Ocean zone (outermost, saltwater)
-    if (adjustedDistance > 0.75) {
-      return 'dirt2'; // Ocean water (blue) - using same visual as freshwater but represents saltwater
+    console.log('=== CALCULATING OPTIMAL OCEAN THRESHOLD ===');
+    console.log(`Target total water tiles: ${targetWaterTiles} / ${totalTiles} (${(targetWaterTiles/totalTiles*100).toFixed(1)}%)`);
+    console.log(`Calculated freshwater tiles: ${freshwaterCount}`);
+    console.log(`Target ocean tiles from distance: ${targetOceanTiles}`);
+    
+    // Test different thresholds to find the one that gives us closest to target ocean tiles
+    let bestThreshold = 0.4;
+    let bestDifference = Number.MAX_SAFE_INTEGER;
+    
+    for (let threshold = 0.2; threshold <= 0.6; threshold += 0.01) {
+      let oceanCount = 0;
+      
+      for (let i = -halfSize; i <= halfSize; i++) {
+        for (let j = -halfSize; j <= halfSize; j++) {
+          const distanceFromCenter = Math.sqrt(i * i + j * j) / halfSize;
+          const inReservedArea = this.isWithinSectionFootprint(i, j) || 
+                                 this.isWithinFoodProductionArea(i, j) || 
+                                 this.isWithinClothingArea(i, j);
+          
+          if (distanceFromCenter > threshold && !inReservedArea) {
+            oceanCount++;
+          }
+        }
+      }
+      
+      const difference = Math.abs(oceanCount - targetOceanTiles);
+      if (difference < bestDifference) {
+        bestDifference = difference;
+        bestThreshold = threshold;
+      }
     }
     
-    // Coastal zone (beaches and coastal plains)
-    if (adjustedDistance > 0.65) {
-      // Coastal beaches - no scattered water tiles in land areas
-      return 'sand'; // Pure beaches, water is handled by ocean zone
+    console.log(`Best threshold: ${bestThreshold.toFixed(3)} (difference: ${bestDifference} tiles)`);
+    console.log('===============================================');
+    
+    return bestThreshold;
+  }
+
+  // Pre-calculate which tiles should be land to ensure exactly 29.1% coverage
+  private calculateLandDistribution(halfSize: number): void {
+    const allTiles: {x: number, z: number, distance: number, priority: number}[] = [];
+    
+    // Generate all possible tile positions with their priorities
+    for (let i = -halfSize; i <= halfSize; i++) {
+      for (let j = -halfSize; j <= halfSize; j++) {
+        const x = i;
+        const z = j;
+        const adjustedDistance = Math.sqrt(x * x + z * z) / halfSize;
+        
+        // Create natural island shape with priority based on distance from center
+        const baseRadius = 0.55;
+        const coastalVariation = Math.sin(Math.atan2(z, x) * 6) * 0.08 + 
+                                Math.sin(Math.atan2(z, x) * 3) * 0.05;
+        const naturalRadius = baseRadius + coastalVariation;
+        
+        // Calculate priority (higher number = more likely to be land)
+        let priority = 0;
+        
+        // Reserved areas get highest priority
+        const inReservedArea = this.isWithinSectionFootprint(x, z) || 
+                              this.isWithinFoodProductionArea(x, z) || 
+                              this.isWithinClothingArea(x, z);
+        if (inReservedArea) {
+          priority = 1000; // Highest priority
+        } else if (adjustedDistance < naturalRadius) {
+          // Natural island area - priority decreases with distance
+          priority = 100 - (adjustedDistance * 100);
+          
+          // Add some randomness for natural coastline
+          const noise = Math.abs(Math.sin((x + z) * 12.9898) * 43758.5453) % 1;
+          priority += (noise - 0.5) * 20;
+        } else {
+          // Outside natural island - very low priority
+          priority = 10 - adjustedDistance * 5;
+        }
+        
+        allTiles.push({x, z, distance: adjustedDistance, priority});
+      }
     }
     
-    // Desert/Scrubland zone (dry outer land)
-    if (adjustedDistance > 0.55) {
-      // Deserts and scrublands
-      return noiseValue < 0.8 ? 'sand' : 'dirt'; // Mostly desert with some scrub
+    // Sort tiles by priority (highest first)
+    allTiles.sort((a, b) => b.priority - a.priority);
+    
+    // Select top tiles for land up to the exact quota
+    for (let i = 0; i < this.maxLandTiles && i < allTiles.length; i++) {
+      const tile = allTiles[i];
+      this.landTileMap!.set(`${tile.x},${tile.z}`, true);
     }
     
-    // Agricultural and grassland zone
-    if (adjustedDistance > 0.4) {
-      // Cropland, pastureland, and grasslands
-      if (noiseValue < 0.3) return 'dirt'; // Cropland
-      else if (noiseValue < 0.8) return 'grass'; // Grasslands and pastures
-      else return 'sand'; // Some remaining desert patches
+    console.log(`Pre-calculated ${this.landTileMap!.size} land tiles for natural island distribution`);
+  }
+
+  // Method to determine logical terrain type based on location and land distribution
+  private getLogicalTerrainType(noiseValue: number, x: number, z: number, adjustedDistance: number): TerrainType {
+    // Determine terrain type based on location and reserved areas
+    const inReservedArea = this.isWithinSectionFootprint(x, z) || 
+                          this.isWithinFoodProductionArea(x, z) || 
+                          this.isWithinClothingArea(x, z);
+    
+    if (inReservedArea) {
+      if (this.isWithinSectionFootprint(x, z)) {
+        return 'urban'; // Urban development
+      } else if (this.isWithinFoodProductionArea(x, z)) {
+        return 'cropland'; // Agricultural land
+      } else if (this.isWithinClothingArea(x, z)) {
+        return 'pastureland'; // Grazing/textile production
+      }
     }
     
-    // Forest zone (temperate and tropical)
-    if (adjustedDistance > 0.25) {
-      // Dense forests with some clearings
-      if (noiseValue < 0.85) return 'grass'; // Forests
-      else return 'dirt'; // Forest clearings and agricultural areas
+    // Natural terrain distribution from center outward
+    if (adjustedDistance < 0.15) {
+      return noiseValue < 0.5 ? 'mountains' : 'cropland'; // Mountain core
+    } else if (adjustedDistance < 0.3) {
+      return noiseValue < 0.3 ? 'mountains' : (noiseValue < 0.6 ? 'cropland' : 'temperateForest'); // Mid island
+    } else if (adjustedDistance < 0.45) {
+      return noiseValue < 0.4 ? 'temperateGrassland' : (noiseValue < 0.7 ? 'deserts' : 'cropland'); // Outer areas
+    } else {
+      return noiseValue < 0.6 ? 'deserts' : 'temperateGrassland'; // Coastal areas
     }
+  }
+
+  // Method to determine terrain type with pre-calculated land distribution
+  getTerrainTypeFromNoise(noiseValue: number, x: number = 0, z: number = 0): VisualTerrainType {
+    // Use pre-calculated land distribution for exactly 29.1% land coverage
+    const tileKey = `${x},${z}`;
+    const isLandTile = this.landTileMap?.get(tileKey) || false;
     
-    // Mountain and tundra zone (inner highlands)
-    if (adjustedDistance > 0.15) {
-      // Mountains with boreal forests and tundra
-      if (noiseValue < 0.4) return 'stone'; // Rocky mountains
-      else if (noiseValue < 0.8) return 'grass'; // Boreal forests
-      else return 'dirt'; // Tundra and alpine areas (using dirt instead of water texture)
+    if (isLandTile) {
+      // This tile was pre-selected to be land
+      this.landTileCount++;
+      
+      // Calculate distance for terrain type determination
+      const adjustedDistance = Math.sqrt(x * x + z * z) / this.mapHalfSize;
+      
+      // Get logical terrain type, then map to visual representation
+      const logicalTerrain = this.getLogicalTerrainType(noiseValue, x, z, adjustedDistance);
+      return TERRAIN_VISUAL_MAPPING[logicalTerrain];
+    } else {
+      // This tile is water (ocean + some inland lakes)
+      this.oceanTileCount++;
+      
+      // Determine if it's saltwater or freshwater based on location
+      const adjustedDistance = Math.sqrt(x * x + z * z) / this.mapHalfSize;
+      const isInlandWater = adjustedDistance < 0.3 && Math.random() < 0.1; // 10% chance of inland water
+      
+      // Both saltwater and freshwater use the same visual representation
+      return TERRAIN_VISUAL_MAPPING[isInlandWater ? 'freshwater' : 'saltwater'];
     }
-    
-    // Central urban/developed zone
-    if (adjustedDistance > 0.05) {
-      // Urban areas with some parks
-      if (noiseValue < 0.6) return 'stone'; // Urban development
-      else if (noiseValue < 0.9) return 'dirt'; // Developed land
-      else return 'grass'; // Urban parks
-    }
-    
-    // Central core (administrative/urban center)
-    return 'stone'; // Dense urban core
   }
 
   ngAfterViewInit(): void {
@@ -495,6 +627,26 @@ export class SquareMapComponent implements AfterViewInit {
     const squareCount = mapSize * mapSize;
     console.log('Map dimensions:', mapSize, 'x', mapSize, '=', squareCount, 'squares');
     console.log('Half size:', halfSize);
+    
+    // Initialize precise ocean tile counting
+    if (this.usePopulationSizing) {
+      this.totalTileCount = squareCount;
+      this.maxOceanTiles = Math.floor(this.totalTileCount * 0.709); // Exactly 70.9% rounded down
+      this.maxLandTiles = Math.floor(this.totalTileCount * 0.291); // Exactly 29.1% land limit
+      this.oceanTileCount = 0;
+      this.landTileCount = 0;
+      this.optimalOceanThreshold = undefined; // Reset threshold calculation
+      
+      console.log('=== INITIALIZING PRECISE TILE COUNTING ===');
+      console.log(`Total tiles: ${this.totalTileCount}`);
+      console.log(`Max land tiles: ${this.maxLandTiles} (${(this.maxLandTiles/this.totalTileCount*100).toFixed(1)}%)`);
+      console.log(`Max ocean tiles: ${this.maxOceanTiles} (${(this.maxOceanTiles/this.totalTileCount*100).toFixed(1)}%)`);
+      console.log('===============================================');
+      
+      // PRE-CALCULATE WHICH TILES SHOULD BE LAND to ensure even distribution
+      this.landTileMap = new Map<string, boolean>();
+      this.calculateLandDistribution(halfSize);
+    }
     const squareGeometry = new THREE.BoxGeometry(1, 1, 1);
     this.stoneMesh = new THREE.InstancedMesh(squareGeometry, new THREE.MeshPhysicalMaterial({ envMap: envmap, envMapIntensity: 0.135, flatShading: true, roughness: 1, metalness: 0, map: textures.stone }), squareCount);
     this.dirtMesh = new THREE.InstancedMesh(squareGeometry, new THREE.MeshPhysicalMaterial({ envMap: envmap, envMapIntensity: 0.135, flatShading: true, roughness: 1, metalness: 0, map: textures.dirt }), squareCount);
@@ -511,19 +663,31 @@ export class SquareMapComponent implements AfterViewInit {
     }), squareCount);
     this.sandMesh = new THREE.InstancedMesh(squareGeometry, new THREE.MeshPhysicalMaterial({ envMap: envmap, envMapIntensity: 0.135, flatShading: true, roughness: 1, metalness: 0, map: textures.sand }), squareCount);
     this.grassMesh = new THREE.InstancedMesh(squareGeometry, new THREE.MeshPhysicalMaterial({ envMap: envmap, envMapIntensity: 0.135, flatShading: true, roughness: 1, metalness: 0, map: textures.grass }), squareCount);
+    this.waterMesh = new THREE.InstancedMesh(squareGeometry, new THREE.MeshPhysicalMaterial({ 
+      envMap: envmap, 
+      envMapIntensity: 0.3, 
+      flatShading: false, 
+      roughness: 0.0, 
+      metalness: 0.0, 
+      map: textures.water,
+      transparent: true,
+      opacity: 0.8,
+      color: 0x20a0ff
+    }), squareCount);
 
     let stoneIndex = 0;
     let dirtIndex = 0;
     let dirt2Index = 0;
     let sandIndex = 0;
     let grassIndex = 0;
+    let waterIndex = 0;
 
     // Clear the tile mapping and height cache
     this.tileToInstanceMap.clear();
     this.originalHeights.clear();
 
     // Track terrain type counts for debugging
-    const terrainCounts = { stone: 0, dirt: 0, dirt2: 0, sand: 0, grass: 0 };
+    const terrainCounts = { stone: 0, dirt: 0, dirt2: 0, sand: 0, grass: 0, water: 0 };
 
     // Pre-calculate the house level height (flat terrain)
     const houseLevelHeight = 0.5; // Same as flat terrain height
@@ -543,7 +707,7 @@ export class SquareMapComponent implements AfterViewInit {
         const tileKey = `${i},${j}`;
         
         // Determine terrain type first to decide height
-        let terrainType: 'stone' | 'sand' | 'dirt' | 'grass' | 'dirt2';
+        let terrainType: VisualTerrainType;
         
         // Special case: House section area should always be urban stone color  
         if (this.isWithinSectionFootprint(i, j)) {
@@ -643,6 +807,11 @@ export class SquareMapComponent implements AfterViewInit {
             this.tileToInstanceMap.set(tileKey, {mesh: this.dirt2Mesh, index: dirt2Index});
             dirt2Index++;
             break;
+          case 'water':
+            this.waterMesh.setMatrixAt(waterIndex, matrix);
+            this.tileToInstanceMap.set(tileKey, {mesh: this.waterMesh, index: waterIndex});
+            waterIndex++;
+            break;
         }
       }
     }
@@ -652,11 +821,67 @@ export class SquareMapComponent implements AfterViewInit {
     this.dirt2Mesh.instanceMatrix.needsUpdate = true;
     this.sandMesh.instanceMatrix.needsUpdate = true;
     this.grassMesh.instanceMatrix.needsUpdate = true;
+    this.waterMesh.instanceMatrix.needsUpdate = true;
 
     console.log('Terrain distribution:', terrainCounts);
-    console.log('Total tiles:', Object.values(terrainCounts).reduce((sum, count) => sum + count, 0));
+    const totalTiles = Object.values(terrainCounts).reduce((sum, count) => sum + count, 0);
+    console.log('Total tiles:', totalTiles);
+    
+    // Log precise tile counting results
+    if (this.usePopulationSizing) {
+      const actualWaterPercent = (terrainCounts.dirt2 / totalTiles * 100).toFixed(2);
+      const actualLandPercent = ((totalTiles - terrainCounts.dirt2) / totalTiles * 100).toFixed(2);
+      const targetWaterPercent = 70.9;
+      const targetLandPercent = 29.1;
+      
+      console.log('=== PRECISE TILE COUNTING RESULTS ===');
+      console.log(`Target water percentage: ${targetWaterPercent}%`);
+      console.log(`Actual water percentage: ${actualWaterPercent}%`);
+      console.log(`Difference from target: ${(parseFloat(actualWaterPercent) - targetWaterPercent).toFixed(2)}%`);
+      console.log(`---`);
+      console.log(`Target land percentage: ${targetLandPercent}%`);
+      console.log(`Actual land percentage: ${actualLandPercent}%`);
+      console.log(`Max land tiles allowed: ${this.maxLandTiles}`);
+      console.log(`Land tiles from counter: ${this.landTileCount}`);
+      console.log(`Water tiles from counter: ${this.oceanTileCount}`);
+      console.log(`Water tiles from terrain count: ${terrainCounts.dirt2}`);
+      console.log(`Counter vs terrain count match: ${this.oceanTileCount === terrainCounts.dirt2}`);
+      console.log('======================================');
+    }
+    
+    // Calculate actual percentages
+    this.actualTerrainPercentages = {
+      stone: parseFloat((terrainCounts.stone / totalTiles * 100).toFixed(1)),
+      dirt: parseFloat((terrainCounts.dirt / totalTiles * 100).toFixed(1)),
+      dirt2: parseFloat((terrainCounts.dirt2 / totalTiles * 100).toFixed(1)), // Water (saltwater + freshwater)
+      sand: parseFloat((terrainCounts.sand / totalTiles * 100).toFixed(1)),
+      grass: parseFloat((terrainCounts.grass / totalTiles * 100).toFixed(1)),
+      water: parseFloat((terrainCounts.water / totalTiles * 100).toFixed(1))
+    };
+    
+    // Calculate expected percentages from biome breakdown
+    const breakdown = this.landBreakdownPerPerson;
+    const totalArea = this.totalAreaPerPerson;
+    this.expectedTerrainPercentages = {
+      stone: parseFloat(((breakdown['mountains'] + breakdown['tundra'] + breakdown['urban']) / totalArea * 100).toFixed(1)),
+      dirt: parseFloat(((breakdown['cropland'] + breakdown['scrub']) / totalArea * 100).toFixed(1)),
+      dirt2: parseFloat((breakdown['saltwater'] / totalArea * 100).toFixed(1)), // Ocean water only
+      sand: parseFloat((breakdown['deserts'] / totalArea * 100).toFixed(1)),
+      grass: parseFloat(((breakdown['borealForest'] + breakdown['temperateForest'] + breakdown['tropicalRainforest'] + breakdown['temperateGrassland'] + breakdown['savanna'] + breakdown['pastureland']) / totalArea * 100).toFixed(1)),
+      water: parseFloat((breakdown['freshwater'] / totalArea * 100).toFixed(1)) // Freshwater only
+    };
+    
+    console.log('=== TERRAIN PERCENTAGE COMPARISON ===');
+    console.log('Terrain Type | Actual % | Expected % | Difference');
+    console.log('Stone (Mountains/Urban):', this.actualTerrainPercentages.stone + '%', '|', this.expectedTerrainPercentages.stone + '%', '|', (this.actualTerrainPercentages.stone - this.expectedTerrainPercentages.stone).toFixed(1) + '%');
+    console.log('Dirt (Cropland/Scrub):', this.actualTerrainPercentages.dirt + '%', '|', this.expectedTerrainPercentages.dirt + '%', '|', (this.actualTerrainPercentages.dirt - this.expectedTerrainPercentages.dirt).toFixed(1) + '%');
+    console.log('Ocean Water (Saltwater):', this.actualTerrainPercentages.dirt2 + '%', '|', this.expectedTerrainPercentages.dirt2 + '%', '|', (this.actualTerrainPercentages.dirt2 - this.expectedTerrainPercentages.dirt2).toFixed(1) + '%');
+    console.log('Fresh Water (Lakes/Rivers):', this.actualTerrainPercentages.water + '%', '|', this.expectedTerrainPercentages.water + '%', '|', (this.actualTerrainPercentages.water - this.expectedTerrainPercentages.water).toFixed(1) + '%');
+    console.log('Sand (Deserts/Savanna):', this.actualTerrainPercentages.sand + '%', '|', this.expectedTerrainPercentages.sand + '%', '|', (this.actualTerrainPercentages.sand - this.expectedTerrainPercentages.sand).toFixed(1) + '%');
+    console.log('Grass (Forests/Grasslands):', this.actualTerrainPercentages.grass + '%', '|', this.expectedTerrainPercentages.grass + '%', '|', (this.actualTerrainPercentages.grass - this.expectedTerrainPercentages.grass).toFixed(1) + '%');
+    console.log('========================================');
 
-    this.scene.add(this.stoneMesh, this.dirtMesh, this.dirt2Mesh, this.sandMesh, this.grassMesh);
+    this.scene.add(this.stoneMesh, this.dirtMesh, this.dirt2Mesh, this.sandMesh, this.grassMesh, this.waterMesh);
     console.log('Terrain meshes added to scene');
     console.log('Scene children count:', this.scene.children.length);
 
@@ -836,7 +1061,7 @@ export class SquareMapComponent implements AfterViewInit {
     }
   }
 
-  reassignTileToMesh(tileX: number, tileZ: number, targetTerrainType: 'stone' | 'sand' | 'dirt' | 'grass' | 'dirt2'): void {
+  reassignTileToMesh(tileX: number, tileZ: number, targetTerrainType: VisualTerrainType): void {
     const tileKey = `${tileX},${tileZ}`;
     const tileInfo = this.tileToInstanceMap.get(tileKey);
     
@@ -853,6 +1078,10 @@ export class SquareMapComponent implements AfterViewInit {
       case 'dirt': targetMesh = this.dirtMesh; break;
       case 'grass': targetMesh = this.grassMesh; break;
       case 'dirt2': targetMesh = this.dirt2Mesh; break;
+      case 'water': targetMesh = this.waterMesh; break;
+      default: 
+        console.error('Unknown terrain type:', targetTerrainType);
+        return;
     }
     
     if (currentMesh === targetMesh) return; // Already correct
@@ -891,7 +1120,7 @@ export class SquareMapComponent implements AfterViewInit {
     const seed = tileX * 1000 + tileZ;
     let noise = Math.abs(Math.sin(seed * 12.9898) * Math.cos(seed * 78.233) * 43758.5453) % 1;
     
-    let terrainType: 'stone' | 'sand' | 'dirt' | 'grass' | 'dirt2';
+    let terrainType: VisualTerrainType;
     
     // Special case: House section area should always be urban stone color
     if (this.isWithinSectionFootprint(tileX, tileZ)) {

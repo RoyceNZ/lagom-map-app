@@ -77,15 +77,26 @@
           
           <strong style="color: #ff6b35;">Actually usable for living: {{ usableAreaPerPerson.toLocaleString() }} m² (~11% of land)</strong><br><br>
           
-          <strong>Map Terrain Legend:</strong><br>
-          • <span style="color: #D2691E;">Desert/Arid</span> → Sandy terrain<br>
-          • <span style="color: #228B22;">Forest/Jungle</span> → Green grassy terrain<br>
-          • <span style="color: #90EE90;">Grassland</span> → Green grassy terrain<br>
-          • <span style="color: #696969;">Mountains/Rocky</span> → Stone terrain<br>
-          • <span style="color: #87CEEB;">Tundra/Polar</span> → Light terrain (dirt2)<br>
-          • <span style="color: #4682B4;">Freshwater</span> → Dirt terrain<br>
-          • <span style="color: #2F4F4F;">Urban/Cities</span> → Stone terrain<br>
-          • <span style="color: #8B4513;">Unusable</span> → Light terrain (dirt2)<br><br>
+          <strong>Natural Island Terrain Layout:</strong><br>
+          • <span style="color: #4682B4;">Ocean & Lakes</span> → Blue water terrain (outer ocean + inland lakes/rivers)<br>
+          • <span style="color: #D2691E;">Coastal Deserts</span> → Sandy beaches and arid coastal zones<br>
+          • <span style="color: #228B22;">Temperate Forests</span> → Dense green forest zones<br>
+          • <span style="color: #90EE90;">Grasslands & Pastures</span> → Green meadows and agricultural valleys<br>
+          • <span style="color: #696969;">Mountains & Peaks</span> → Rocky highland terrain<br>
+          • <span style="color: #8B4513;">Cropland & Valleys</span> → Brown agricultural and valley terrain<br>
+          • <span style="color: #2F4F4F;">Urban Centers</span> → Stone urban development<br><br>
+          
+          <strong>Geographic Layout:</strong><br>
+          The terrain shows a tiny island surrounded by vast ocean (accurate Earth proportions):<br>
+          • Massive ocean covers ~80% of the map area (matching real Earth ratios)<br>
+          • Very small island with compressed biomes in realistic proportions<br>
+          • Minimal coastal zones due to small land area<br>
+          • Concentrated agricultural areas in the few fertile valleys<br>
+          • Small forest patches in mid-elevation zones<br>
+          • Compact mountain range in the tiny interior<br>
+          • Scaled-down freshwater system (small lakes and streams)<br>
+          • Tiny urban center represents the limited habitable space<br>
+          • **This is what your fair share of Earth actually looks like!**<br><br>
           
           <strong>Map Visualization:</strong><br>
           • Each tile: 1m × 1m<br>
@@ -93,6 +104,69 @@
           • Represents: {{ (populationBasedMapSize * populationBasedMapSize).toLocaleString() }} m² (1:1 scale)<br>
           • Total Earth surface per person: {{ totalAreaPerPerson.toLocaleString() }} m² (includes oceans, land, everything)<br>
           • Scale: **TRUE 1:1 SCALE** - Each map square meter = 1 real square meter of your Earth share!
+        </small>
+      </div>
+      
+      <!-- Terrain Percentage Verification -->
+      <div class="terrain-comparison" *ngIf="usePopulationSizing && actualTerrainPercentages.stone > 0">
+        <h5 style="margin-top: 20px; color: #ff6b35;">Map Accuracy Verification</h5>
+        <small>
+          <strong>Actual vs Expected Terrain Distribution:</strong><br>
+          <table style="width: 100%; border-collapse: collapse; margin-top: 10px;">
+            <tr style="background-color: #f0f0f0;">
+              <th style="padding: 5px; border: 1px solid #ccc; text-align: left;">Terrain Type</th>
+              <th style="padding: 5px; border: 1px solid #ccc; text-align: center;">Actual %</th>
+              <th style="padding: 5px; border: 1px solid #ccc; text-align: center;">Expected %</th>
+              <th style="padding: 5px; border: 1px solid #ccc; text-align: center;">Difference</th>
+            </tr>
+            <tr>
+              <td style="padding: 5px; border: 1px solid #ccc;"><span style="color: #696969;">Stone (Mountains/Urban)</span></td>
+              <td style="padding: 5px; border: 1px solid #ccc; text-align: center;">{{ actualTerrainPercentages.stone }}%</td>
+              <td style="padding: 5px; border: 1px solid #ccc; text-align: center;">{{ expectedTerrainPercentages.stone }}%</td>
+              <td style="padding: 5px; border: 1px solid #ccc; text-align: center;" 
+                  [style.color]="getAbsDifference(actualTerrainPercentages.stone, expectedTerrainPercentages.stone) > 2 ? 'red' : 'green'">
+                {{ (actualTerrainPercentages.stone - expectedTerrainPercentages.stone).toFixed(1) }}%
+              </td>
+            </tr>
+            <tr>
+              <td style="padding: 5px; border: 1px solid #ccc;"><span style="color: #8B4513;">Dirt (Cropland/Scrub)</span></td>
+              <td style="padding: 5px; border: 1px solid #ccc; text-align: center;">{{ actualTerrainPercentages.dirt }}%</td>
+              <td style="padding: 5px; border: 1px solid #ccc; text-align: center;">{{ expectedTerrainPercentages.dirt }}%</td>
+              <td style="padding: 5px; border: 1px solid #ccc; text-align: center;" 
+                  [style.color]="getAbsDifference(actualTerrainPercentages.dirt, expectedTerrainPercentages.dirt) > 2 ? 'red' : 'green'">
+                {{ (actualTerrainPercentages.dirt - expectedTerrainPercentages.dirt).toFixed(1) }}%
+              </td>
+            </tr>
+            <tr>
+              <td style="padding: 5px; border: 1px solid #ccc;"><span style="color: #4682B4;">Water (Oceans/Lakes)</span></td>
+              <td style="padding: 5px; border: 1px solid #ccc; text-align: center;">{{ actualTerrainPercentages.dirt2 }}%</td>
+              <td style="padding: 5px; border: 1px solid #ccc; text-align: center;">{{ expectedTerrainPercentages.dirt2 }}%</td>
+              <td style="padding: 5px; border: 1px solid #ccc; text-align: center;" 
+                  [style.color]="getAbsDifference(actualTerrainPercentages.dirt2, expectedTerrainPercentages.dirt2) > 2 ? 'red' : 'green'">
+                {{ (actualTerrainPercentages.dirt2 - expectedTerrainPercentages.dirt2).toFixed(1) }}%
+              </td>
+            </tr>
+            <tr>
+              <td style="padding: 5px; border: 1px solid #ccc;"><span style="color: #D2691E;">Sand (Deserts)</span></td>
+              <td style="padding: 5px; border: 1px solid #ccc; text-align: center;">{{ actualTerrainPercentages.sand }}%</td>
+              <td style="padding: 5px; border: 1px solid #ccc; text-align: center;">{{ expectedTerrainPercentages.sand }}%</td>
+              <td style="padding: 5px; border: 1px solid #ccc; text-align: center;" 
+                  [style.color]="getAbsDifference(actualTerrainPercentages.sand, expectedTerrainPercentages.sand) > 2 ? 'red' : 'green'">
+                {{ (actualTerrainPercentages.sand - expectedTerrainPercentages.sand).toFixed(1) }}%
+              </td>
+            </tr>
+            <tr>
+              <td style="padding: 5px; border: 1px solid #ccc;"><span style="color: #228B22;">Grass (Forests/Grasslands)</span></td>
+              <td style="padding: 5px; border: 1px solid #ccc; text-align: center;">{{ actualTerrainPercentages.grass }}%</td>
+              <td style="padding: 5px; border: 1px solid #ccc; text-align: center;">{{ expectedTerrainPercentages.grass }}%</td>
+              <td style="padding: 5px; border: 1px solid #ccc; text-align: center;" 
+                  [style.color]="getAbsDifference(actualTerrainPercentages.grass, expectedTerrainPercentages.grass) > 2 ? 'red' : 'green'">
+                {{ (actualTerrainPercentages.grass - expectedTerrainPercentages.grass).toFixed(1) }}%
+              </td>
+            </tr>
+          </table>
+          <br>
+          <em>Green = Good match (within 2%), Red = Significant difference (>2%)</em>
         </small>
       </div>
     </div>
