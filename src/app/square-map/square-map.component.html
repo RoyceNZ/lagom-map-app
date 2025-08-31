@@ -2,11 +2,228 @@
   <div #rendererContainer id="rendererContainer"></div>
   <div class="filters">
     
+    <!-- Map Legend -->
+    <div class="map-legend" style="margin-bottom: 20px; padding: 15px; background: #f8f9fa; border-radius: 8px; border: 2px solid #dee2e6;">
+      <h4 style="margin-top: 0; margin-bottom: 15px; color: #495057; text-align: center;">🗺️ Biome & Terrain Legend</h4>
+      
+      <!-- Water Biomes -->
+      <div style="margin-bottom: 15px;">
+        <h5 style="margin-bottom: 10px; color: #0066cc; border-bottom: 2px solid #0066cc; padding-bottom: 5px;">💧 Water Bodies</h5>
+        <div style="display: grid; grid-template-columns: repeat(auto-fit, minmax(200px, 1fr)); gap: 8px;">
+          <div style="display: flex; align-items: center; padding: 4px;">
+            <div style="width: 20px; height: 20px; background: #20a0ff; border: 1px solid #ccc; margin-right: 8px; border-radius: 3px;"></div>
+            <span style="font-size: 13px;"><strong>Saltwater (Oceans/Seas)</strong><br>
+              {{ getActualBiomePercentage('saltwater').toFixed(1) }}% 
+              <span *ngIf="enforceEarthQuotas" style="color: #666;">(Target: {{ getTargetBiomePercentage('saltwater').toFixed(1) }}%) {{ getQuotaStatus('saltwater') }}</span><br>
+              ({{ getActualBiomeCount('saltwater').toLocaleString() }} tiles)</span>
+          </div>
+          <div style="display: flex; align-items: center; padding: 4px;">
+            <div style="width: 20px; height: 20px; background: #4080ff; border: 1px solid #ccc; margin-right: 8px; border-radius: 3px;"></div>
+            <span style="font-size: 13px;"><strong>Freshwater (Lakes/Rivers)</strong><br>
+              {{ getActualBiomePercentage('freshwater').toFixed(1) }}% 
+              ({{ getActualBiomeCount('freshwater').toLocaleString() }} tiles)</span>
+          </div>
+        </div>
+      </div>
+
+      <!-- Forest Biomes -->
+      <div style="margin-bottom: 15px;">
+        <h5 style="margin-bottom: 10px; color: #228B22; border-bottom: 2px solid #228B22; padding-bottom: 5px;">🌲 Forest Ecosystems</h5>
+        <div style="display: grid; grid-template-columns: repeat(auto-fit, minmax(200px, 1fr)); gap: 8px;">
+          <div style="display: flex; align-items: center; padding: 4px;">
+            <div style="width: 20px; height: 20px; background: #0d4f0d; border: 1px solid #ccc; margin-right: 8px; border-radius: 3px;"></div>
+            <span style="font-size: 13px;"><strong>Boreal Forest</strong><br>
+              {{ getActualBiomePercentage('borealForest').toFixed(1) }}% 
+              <span *ngIf="enforceEarthQuotas" style="color: #666;">(Target: {{ getTargetBiomePercentage('borealForest').toFixed(1) }}%) {{ getQuotaStatus('borealForest') }}</span><br>
+              ({{ getActualBiomeCount('borealForest').toLocaleString() }} tiles)</span>
+          </div>
+          <div style="display: flex; align-items: center; padding: 4px;">
+            <div style="width: 20px; height: 20px; background: #228B22; border: 1px solid #ccc; margin-right: 8px; border-radius: 3px;"></div>
+            <span style="font-size: 13px;"><strong>Temperate Forest</strong><br>
+              {{ getActualBiomePercentage('temperateForest').toFixed(1) }}% 
+              ({{ getActualBiomeCount('temperateForest').toLocaleString() }} tiles)</span>
+          </div>
+          <div style="display: flex; align-items: center; padding: 4px;">
+            <div style="width: 20px; height: 20px; background: #32CD32; border: 1px solid #ccc; margin-right: 8px; border-radius: 3px;"></div>
+            <span style="font-size: 13px;"><strong>Tropical Rainforest</strong><br>
+              {{ getActualBiomePercentage('tropicalRainforest').toFixed(1) }}% 
+              ({{ getActualBiomeCount('tropicalRainforest').toLocaleString() }} tiles)</span>
+          </div>
+        </div>
+      </div>
+
+      <!-- Grassland Biomes -->
+      <div style="margin-bottom: 15px;">
+        <h5 style="margin-bottom: 10px; color: #90EE90; border-bottom: 2px solid #90EE90; padding-bottom: 5px;">🌾 Grasslands & Savannas</h5>
+        <div style="display: grid; grid-template-columns: repeat(auto-fit, minmax(200px, 1fr)); gap: 8px;">
+          <div style="display: flex; align-items: center; padding: 4px;">
+            <div style="width: 20px; height: 20px; background: #90EE90; border: 1px solid #ccc; margin-right: 8px; border-radius: 3px;"></div>
+            <span style="font-size: 13px;"><strong>Temperate Grassland</strong><br>
+              {{ getActualBiomePercentage('temperateGrassland').toFixed(1) }}% 
+              ({{ getActualBiomeCount('temperateGrassland').toLocaleString() }} tiles)</span>
+          </div>
+          <div style="display: flex; align-items: center; padding: 4px;">
+            <div style="width: 20px; height: 20px; background: #D2B48C; border: 1px solid #ccc; margin-right: 8px; border-radius: 3px;"></div>
+            <span style="font-size: 13px;"><strong>Savanna</strong><br>
+              {{ getActualBiomePercentage('savanna').toFixed(1) }}% 
+              ({{ getActualBiomeCount('savanna').toLocaleString() }} tiles)</span>
+          </div>
+          <div style="display: flex; align-items: center; padding: 4px;">
+            <div style="width: 20px; height: 20px; background: #9ACD32; border: 1px solid #ccc; margin-right: 8px; border-radius: 3px;"></div>
+            <span style="font-size: 13px;"><strong>Scrub & Shrublands</strong><br>
+              {{ getActualBiomePercentage('scrub').toFixed(1) }}% 
+              ({{ getActualBiomeCount('scrub').toLocaleString() }} tiles)</span>
+          </div>
+        </div>
+      </div>
+
+      <!-- Extreme Biomes -->
+      <div style="margin-bottom: 15px;">
+        <h5 style="margin-bottom: 10px; color: #D2691E; border-bottom: 2px solid #D2691E; padding-bottom: 5px;">🏔️ Extreme Environments</h5>
+        <div style="display: grid; grid-template-columns: repeat(auto-fit, minmax(200px, 1fr)); gap: 8px;">
+          <div style="display: flex; align-items: center; padding: 4px;">
+            <div style="width: 20px; height: 20px; background: #D2691E; border: 1px solid #ccc; margin-right: 8px; border-radius: 3px;"></div>
+            <span style="font-size: 13px;"><strong>Deserts</strong><br>
+              {{ getActualBiomePercentage('deserts').toFixed(1) }}% 
+              <span *ngIf="enforceEarthQuotas" style="color: #666;">(Target: {{ getTargetBiomePercentage('deserts').toFixed(1) }}%) {{ getQuotaStatus('deserts') }}</span><br>
+              ({{ getActualBiomeCount('deserts').toLocaleString() }} tiles)</span>
+          </div>
+          <div style="display: flex; align-items: center; padding: 4px;">
+            <div style="width: 20px; height: 20px; background: #A9A9A9; border: 1px solid #ccc; margin-right: 8px; border-radius: 3px;"></div>
+            <span style="font-size: 13px;"><strong>Tundra</strong><br>
+              {{ getActualBiomePercentage('tundra').toFixed(1) }}% 
+              ({{ getActualBiomeCount('tundra').toLocaleString() }} tiles)</span>
+          </div>
+          <div style="display: flex; align-items: center; padding: 4px;">
+            <div style="width: 20px; height: 20px; background: #696969; border: 1px solid #ccc; margin-right: 8px; border-radius: 3px;"></div>
+            <span style="font-size: 13px;"><strong>Mountains</strong><br>
+              {{ getActualBiomePercentage('mountains').toFixed(1) }}% 
+              ({{ getActualBiomeCount('mountains').toLocaleString() }} tiles)</span>
+          </div>
+        </div>
+      </div>
+
+      <!-- Human Use Areas -->
+      <div style="margin-bottom: 10px;">
+        <h5 style="margin-bottom: 10px; color: #8B4513; border-bottom: 2px solid #8B4513; padding-bottom: 5px;">🏡 Human Use Areas</h5>
+        <div style="display: grid; grid-template-columns: repeat(auto-fit, minmax(200px, 1fr)); gap: 8px;">
+          <div style="display: flex; align-items: center; padding: 4px;">
+            <div style="width: 20px; height: 20px; background: #DAA520; border: 1px solid #ccc; margin-right: 8px; border-radius: 3px;"></div>
+            <span style="font-size: 13px;"><strong>Cropland</strong><br>
+              {{ getActualBiomePercentage('cropland').toFixed(1) }}% 
+              ({{ getActualBiomeCount('cropland').toLocaleString() }} tiles)</span>
+          </div>
+          <div style="display: flex; align-items: center; padding: 4px;">
+            <div style="width: 20px; height: 20px; background: #6B8E23; border: 1px solid #ccc; margin-right: 8px; border-radius: 3px;"></div>
+            <span style="font-size: 13px;"><strong>Pastureland</strong><br>
+              {{ getActualBiomePercentage('pastureland').toFixed(1) }}% 
+              ({{ getActualBiomeCount('pastureland').toLocaleString() }} tiles)</span>
+          </div>
+          <div style="display: flex; align-items: center; padding: 4px;">
+            <div style="width: 20px; height: 20px; background: #2F4F4F; border: 1px solid #ccc; margin-right: 8px; border-radius: 3px;"></div>
+            <span style="font-size: 13px;"><strong>Urban Areas</strong><br>
+              {{ getActualBiomePercentage('urban').toFixed(1) }}% 
+              ({{ getActualBiomeCount('urban').toLocaleString() }} tiles)</span>
+          </div>
+        </div>
+      </div>
+
+      <!-- Summary Stats -->
+      <div style="margin-top: 15px; padding: 10px; background: #e9ecef; border-radius: 5px;">
+        <div style="display: grid; grid-template-columns: repeat(auto-fit, minmax(180px, 1fr)); gap: 10px; font-size: 12px;">
+          <div><strong>Total Water:</strong><br>
+            {{ (getActualBiomePercentage('saltwater') + getActualBiomePercentage('freshwater')).toFixed(1) }}%<br>
+            ({{ (getActualBiomeCount('saltwater') + getActualBiomeCount('freshwater')).toLocaleString() }} tiles)
+          </div>
+          <div><strong>Total Land:</strong><br>
+            {{ (100 - (getActualBiomePercentage('saltwater') + getActualBiomePercentage('freshwater'))).toFixed(1) }}%<br>
+            ({{ (populationBasedMapSize * populationBasedMapSize - getActualBiomeCount('saltwater') - getActualBiomeCount('freshwater')).toLocaleString() }} tiles)
+          </div>
+          <div><strong>Agricultural Land:</strong><br>
+            {{ (getActualBiomePercentage('cropland') + getActualBiomePercentage('pastureland')).toFixed(1) }}%<br>
+            ({{ (getActualBiomeCount('cropland') + getActualBiomeCount('pastureland')).toLocaleString() }} tiles)
+          </div>
+          <div><strong>Natural Areas:</strong><br>
+            {{ (100 - (getActualBiomePercentage('saltwater') + getActualBiomePercentage('freshwater') + getActualBiomePercentage('cropland') + getActualBiomePercentage('pastureland') + getActualBiomePercentage('urban'))).toFixed(1) }}%<br>
+            ({{ (populationBasedMapSize * populationBasedMapSize - getActualBiomeCount('saltwater') - getActualBiomeCount('freshwater') - getActualBiomeCount('cropland') - getActualBiomeCount('pastureland') - getActualBiomeCount('urban')).toLocaleString() }} tiles)
+          </div>
+        </div>
+        <div style="margin-top: 10px; padding-top: 8px; border-top: 1px solid #ccc; font-size: 11px; color: #666;">
+          <strong>Map Scale:</strong> {{ populationBasedMapSize }}×{{ populationBasedMapSize }} = {{ (populationBasedMapSize * populationBasedMapSize).toLocaleString() }} total tiles (1 tile = 1 m²)
+        </div>
+      </div>
+    </div>
+
+    <!-- Terrain Generation Controls -->
+    <div class="terrain-controls" *ngIf="showTerrainControls" style="margin-bottom: 20px; padding: 15px; background: #f1f8ff; border-radius: 8px; border: 2px solid #b3d9ff;">
+      <h4 style="margin-top: 0; margin-bottom: 15px; color: #2c5aa0; text-align: center;">🗺️ Natural Terrain Generation</h4>
+      
+        <div style="display: flex; flex-direction: column; gap: 12px;">
+        <!-- Earth Quota Toggle -->
+        <div style="background: white; padding: 12px; border-radius: 4px; border: 1px solid #ddd;">
+          <label style="display: flex; align-items: center; cursor: pointer; font-weight: 600; color: #2c5aa0;">
+            <input 
+              type="checkbox" 
+              [(ngModel)]="enforceEarthQuotas" 
+              (change)="updateMap()" 
+              style="margin-right: 8px; transform: scale(1.2);"
+            />
+            🌍 Enforce Earth-Based Biome Percentages
+          </label>
+          <div style="font-size: 12px; color: #666; margin-top: 4px; margin-left: 24px;">
+            When enabled, maintains exact Earth percentages while preserving natural clustering
+          </div>
+        </div>
+
+        <div style="text-align: center;">
+          <button 
+            (click)="regenerateTerrain()" 
+            style="
+              background: linear-gradient(135deg, #4a90e2, #357abd);
+              color: white;
+              border: none;
+              padding: 12px 24px;
+              border-radius: 6px;
+              font-size: 14px;
+              font-weight: 600;
+              cursor: pointer;
+              box-shadow: 0 3px 8px rgba(0,0,0,0.2);
+              transition: all 0.3s ease;
+            "
+            onmouseover="this.style.transform='translateY(-2px)'; this.style.boxShadow='0 5px 15px rgba(0,0,0,0.3)'"
+            onmouseout="this.style.transform='translateY(0)'; this.style.boxShadow='0 3px 8px rgba(0,0,0,0.2)'"
+          >
+            🎲 Generate New {{ enforceEarthQuotas ? 'Earth-Accurate' : 'Natural' }} Island Layout
+          </button>
+        </div>        <div style="background: white; padding: 10px; border-radius: 4px; border: 1px solid #ddd; font-size: 13px;">
+          <div style="font-weight: 600; margin-bottom: 6px; color: #2c5aa0;">🌿 Enhanced Features:</div>
+          <ul style="margin: 0; padding-left: 18px; line-height: 1.4;">
+            <li><strong>Earth-Based Quotas:</strong> Optional enforcement of exact Earth biome percentages</li>
+            <li><strong>Realistic Biome Clustering:</strong> Natural seed-based biome distribution</li>
+            <li><strong>Elevation-Based Terrain:</strong> Mountains, foothills, and coastal areas</li>
+            <li><strong>Natural Water Systems:</strong> Rivers flowing from mountains to coast</li>
+            <li><strong>Geographic Logic:</strong> Rain shadows, coastal zones, and transition areas</li>
+            <li><strong>Smart Fallbacks:</strong> Maintains natural look when quotas are exceeded</li>
+          </ul>
+          <div style="margin-top: 8px; padding: 6px; background: #f8f9fa; border-radius: 3px; font-size: 12px;">
+            <strong>Mode:</strong> {{ enforceEarthQuotas ? '🌍 Earth-Accurate (exact percentages)' : '🏝️ Natural Clustering (organic distribution)' }}
+          </div>
+        </div>
+        
+        <div style="text-align: center; font-size: 12px; color: #666; font-style: italic;">
+          Current Terrain Seed: {{ terrainSeed.toFixed(0) }}
+        </div>
+      </div>
+    </div>
+    
     <!-- Debug Controls -->
     <div class="debug-controls" style="margin-bottom: 20px; padding: 10px; background: #f5f5f5; border-radius: 5px;">
       <h4>Debug Tools</h4>
       <button (click)="updateMap()" style="padding: 8px 16px; margin-right: 10px; background: #007bff; color: white; border: none; border-radius: 4px; cursor: pointer;">
-        🔄 Regenerate Map & Check Terrain Types
+        🔄 Regenerate Current Terrain
+      </button>
+      <button (click)="regenerateTerrain()" style="padding: 8px 16px; margin-right: 10px; background: #28a745; color: white; border: none; border-radius: 4px; cursor: pointer;">
+        🎲 New Terrain Pattern
       </button>
     </div>
       
