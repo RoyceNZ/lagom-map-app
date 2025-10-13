@@ -1355,8 +1355,10 @@ export class SquareMapComponent implements AfterViewInit {
     console.log('Map dimensions:', mapSize, 'x', mapSize, '=', squareCount, 'squares');
     console.log('Half size:', halfSize);
     
-    // Initialize precise ocean tile counting
-    if (this.usePopulationSizing) {
+  // Initialize precise ocean tile counting
+  // Prepare deterministic map assignments container (filled below)
+  let mapAssignments: Map<string, TerrainType> = new Map();
+  if (this.usePopulationSizing) {
       this.totalTileCount = squareCount;
       this.maxOceanTiles = Math.floor(this.totalTileCount * 0.709); // Exactly 70.9% rounded down
       this.maxLandTiles = Math.floor(this.totalTileCount * 0.291); // Exactly 29.1% land limit
@@ -1370,8 +1372,19 @@ export class SquareMapComponent implements AfterViewInit {
       console.log('===============================================');
       
       // PRE-CALCULATE NATURAL ISLAND SHAPE for performance optimization
-      this.naturalIslandMap = new Map<string, boolean>();
-      this.calculateNaturalIslandShape(halfSize);
+        // Instead of a radius-based natural island generator, generate a deterministic
+        // arrangement of square groups that exactly matches the requested tile counts
+        // from `biomeTileCounts`. This places compact square blocks for each biome
+        // (largest first) into the map grid.
+        // The generated assignment map is stored in `mapAssignments` and used below
+        // to assign terrain types per tile.
+        // NOTE: this replaces the natural island pre-calculation approach.
+        // Keep `naturalIslandMap` undefined to avoid mixing approaches.
+        // this.naturalIslandMap = new Map<string, boolean>();
+        // this.calculateNaturalIslandShape(halfSize);
+      
+        // Generate deterministic square-group assignments for the whole map
+        mapAssignments = this.generateSquareGroupsMap();
     }
     const squareGeometry = new THREE.BoxGeometry(1, 1, 1);
     
@@ -1501,21 +1514,15 @@ export class SquareMapComponent implements AfterViewInit {
         
   
         if (this.usePopulationSizing) {
-          // Use quota-enforced terrain assignment with natural clustering
-          const logicalTerrain = this.getLogicalTerrainType(noise, i, j, Math.sqrt(i * i + j * j) / halfSize);
-          
-          // Reserve the biome tile (decrements quota)
-          if (this.enforceEarthQuotas) {
-            this.reserveBiomeTile(logicalTerrain);
-          }
-          
+          // Use deterministic square-group assignment (exact counts)
+          const assignedLogical = (mapAssignments.get(tileKey) || 'saltwater') as TerrainType;
+
           // Convert logical terrain to visual terrain type
-          terrainType = TERRAIN_VISUAL_MAPPING[logicalTerrain];
+          terrainType = TERRAIN_VISUAL_MAPPING[assignedLogical];
           
-          // Debug logging for natural island generation
+          // Debug logging for tile assignment
           if (Math.random() < 0.0005 && i >= 0 && j >= 0) { // Log 0.05% of tiles, only positive quadrant
-            const distanceFromCenter = Math.sqrt(i * i + j * j) / halfSize;
-            console.log(`QUOTA TERRAIN Debug [${i},${j}]: logical="${logicalTerrain}", visual="${terrainType}", dist=${distanceFromCenter.toFixed(3)}, remaining=${this.remainingQuotas[logicalTerrain]}`);
+            console.log(`ASSIGNMENT Debug [${i},${j}]: logical="${assignedLogical}", visual="${terrainType}"`);
           }
         } else {
           // Fallback - should not be used with population sizing enabled
@@ -1678,21 +1685,40 @@ export class SquareMapComponent implements AfterViewInit {
       }
     }
 
-    // Update all terrain mesh matrices
-    this.mountainsMesh.instanceMatrix.needsUpdate = true;
-    this.tundraMesh.instanceMatrix.needsUpdate = true;
-    this.urbanMesh.instanceMatrix.needsUpdate = true;
-    this.borealForestMesh.instanceMatrix.needsUpdate = true;
-    this.temperateForestMesh.instanceMatrix.needsUpdate = true;
-    this.tropicalRainforestMesh.instanceMatrix.needsUpdate = true;
-    this.croplandMesh.instanceMatrix.needsUpdate = true;
-    this.scrubMesh.instanceMatrix.needsUpdate = true;
-    this.temperateGrasslandMesh.instanceMatrix.needsUpdate = true;
-    this.pasturelandMesh.instanceMatrix.needsUpdate = true;
-    this.savannaMesh.instanceMatrix.needsUpdate = true;
-    this.desertsMesh.instanceMatrix.needsUpdate = true;
-    this.saltwaterMesh.instanceMatrix.needsUpdate = true;
-    this.freshwaterMesh.instanceMatrix.needsUpdate = true;
+  // Only render the number of instances we actually set matrices for.
+  // InstancedMesh was created with capacity = squareCount; if we don't set
+  // .count then the renderer may draw all allocated instances (many of which
+  // are still at identity and appear at the origin). Setting .count prevents
+  // that and removes the single center artifact and related performance issues.
+  this.mountainsMesh.count = mountainsIndex;
+  this.tundraMesh.count = tundraIndex;
+  this.urbanMesh.count = urbanIndex;
+  this.borealForestMesh.count = borealForestIndex;
+  this.temperateForestMesh.count = temperateForestIndex;
+  this.tropicalRainforestMesh.count = tropicalRainforestIndex;
+  this.croplandMesh.count = croplandIndex;
+  this.scrubMesh.count = scrubIndex;
+  this.temperateGrasslandMesh.count = temperateGrasslandIndex;
+  this.pasturelandMesh.count = pasturelandIndex;
+  this.savannaMesh.count = savannaIndex;
+  this.desertsMesh.count = desertsIndex;
+  this.saltwaterMesh.count = saltwaterIndex;
+  this.freshwaterMesh.count = freshwaterIndex;
+
+  this.mountainsMesh.instanceMatrix.needsUpdate = true;
+  this.tundraMesh.instanceMatrix.needsUpdate = true;
+  this.urbanMesh.instanceMatrix.needsUpdate = true;
+  this.borealForestMesh.instanceMatrix.needsUpdate = true;
+  this.temperateForestMesh.instanceMatrix.needsUpdate = true;
+  this.tropicalRainforestMesh.instanceMatrix.needsUpdate = true;
+  this.croplandMesh.instanceMatrix.needsUpdate = true;
+  this.scrubMesh.instanceMatrix.needsUpdate = true;
+  this.temperateGrasslandMesh.instanceMatrix.needsUpdate = true;
+  this.pasturelandMesh.instanceMatrix.needsUpdate = true;
+  this.savannaMesh.instanceMatrix.needsUpdate = true;
+  this.desertsMesh.instanceMatrix.needsUpdate = true;
+  this.saltwaterMesh.instanceMatrix.needsUpdate = true;
+  this.freshwaterMesh.instanceMatrix.needsUpdate = true;
 
     console.log('Terrain distribution:', terrainCounts);
     
@@ -1944,6 +1970,133 @@ export class SquareMapComponent implements AfterViewInit {
 
   private tileToPosition(tileX: number, tileY: number): THREE.Vector2 {
     return new THREE.Vector2(tileX * 1, tileY * 1);
+  }
+
+  // Generate deterministic square-block groupings to exactly meet biome tile counts.
+  // Returns a map from tileKey "x,z" to the TerrainType assigned.
+  private generateSquareGroupsMap(): Map<string, TerrainType> {
+    const mapSize = this.populationBasedMapSize;
+    const halfSize = this.mapHalfSize;
+    const totalTiles = mapSize * mapSize;
+
+    // Get tile counts per logical biome (based on area quotas)
+    const tileCounts = this.biomeTileCounts; // keys are strings matching breakdown
+
+    // Convert into an array of [biome, count] and sort by descending count so large biomes placed first
+    const entries: [string, number][] = Object.entries(tileCounts).sort((a, b) => b[1] - a[1]);
+
+    const assignment = new Map<string, TerrainType>();
+
+    // Create a simple occupancy grid to mark used tiles
+    const occupied: boolean[][] = [];
+    for (let i = 0; i < mapSize; i++) {
+      occupied[i] = new Array(mapSize).fill(false);
+    }
+
+    // Helper to convert grid indices to coordinate space centered at 0
+    const gridToCoord = (gx: number, gz: number) => {
+      const x = gx - halfSize;
+      const z = gz - halfSize;
+      return { x, z };
+    };
+
+    // For each biome, place square blocks until the required count is met
+    for (const [biomeKey, targetCount] of entries) {
+      if (targetCount <= 0) continue;
+
+      let remaining = targetCount;
+
+      // Try to place large squares first (size decreasing)
+      // Max square size limited by map size
+      let maxSquare = Math.floor(Math.sqrt(remaining));
+      maxSquare = Math.max(maxSquare, 1);
+
+      
+
+      // Center index in grid coordinates
+      const centerIndex = (mapSize - 1) / 2;
+
+      // Iterate over decreasing square sizes to fill remaining tiles
+      for (let size = Math.min(maxSquare, mapSize); size >= 1 && remaining > 0; size--) {
+        // Build candidate top-left positions for squares of this size
+        const candidates: { gx: number; gz: number; dist: number }[] = [];
+        for (let gz = 0; gz <= mapSize - size; gz++) {
+          for (let gx = 0; gx <= mapSize - size; gx++) {
+            // compute square center in grid coords
+            const squareCenterX = gx + (size - 1) / 2;
+            const squareCenterZ = gz + (size - 1) / 2;
+            const dx = squareCenterX - centerIndex;
+            const dz = squareCenterZ - centerIndex;
+            const dist = Math.sqrt(dx * dx + dz * dz);
+            candidates.push({ gx, gz, dist });
+          }
+        }
+
+        // Sort candidates by proximity to center (closest first) so blocks are placed near center
+        candidates.sort((a, b) => a.dist - b.dist);
+
+        // Try candidate positions in that order
+        for (const cand of candidates) {
+          if (remaining <= 0) break;
+          const gx = cand.gx;
+          const gz = cand.gz;
+
+          // Check if square of this size at gx,gz is free
+          let free = true;
+          for (let yy = 0; yy < size && free; yy++) {
+            for (let xx = 0; xx < size; xx++) {
+              if (occupied[gx + xx][gz + yy]) { free = false; break; }
+            }
+          }
+          if (!free) continue;
+
+          // Place square: mark occupied and assign biome tiles
+          for (let yy = 0; yy < size && remaining > 0; yy++) {
+            for (let xx = 0; xx < size && remaining > 0; xx++) {
+              occupied[gx + xx][gz + yy] = true;
+              const coord = gridToCoord(gx + xx, gz + yy);
+              const key = `${coord.x},${coord.z}`;
+              assignment.set(key, biomeKey as TerrainType);
+              remaining--;
+            }
+          }
+        }
+      }
+
+      // If after attempting squares there's still remaining single tiles to place, place them by proximity to center
+      if (remaining > 0) {
+        const singleCandidates: { gx: number; gz: number; dist: number }[] = [];
+        for (let gz = 0; gz < mapSize; gz++) {
+          for (let gx = 0; gx < mapSize; gx++) {
+            if (!occupied[gx][gz]) {
+              const dx = gx - centerIndex;
+              const dz = gz - centerIndex;
+              singleCandidates.push({ gx, gz, dist: Math.sqrt(dx * dx + dz * dz) });
+            }
+          }
+        }
+        singleCandidates.sort((a, b) => a.dist - b.dist);
+        for (const c of singleCandidates) {
+          if (remaining <= 0) break;
+          occupied[c.gx][c.gz] = true;
+          const coord = gridToCoord(c.gx, c.gz);
+          const key = `${coord.x},${coord.z}`;
+          assignment.set(key, biomeKey as TerrainType);
+          remaining--;
+        }
+      }
+    }
+
+    // Any unassigned tiles default to saltwater
+    for (let gz = 0; gz < mapSize; gz++) {
+      for (let gx = 0; gx < mapSize; gx++) {
+        const coord = gridToCoord(gx, gz);
+        const key = `${coord.x},${coord.z}`;
+        if (!assignment.has(key)) assignment.set(key, 'saltwater');
+      }
+    }
+
+    return assignment;
   }
 
 
