@@ -70,31 +70,13 @@ export class SquareMapComponent implements AfterViewInit {
   camera!: THREE.PerspectiveCamera;
   renderer!: THREE.WebGLRenderer;
 
-  houseSize = 130;
-  sectionSize = 750;
+ 
 
-  // House generation properties
-  houseAreaSqM = 100; // Square meters for house footprint
-  numberOfFloors = 2;
-  floorHeight = 3; // Height of each floor in meters
-  showHouse = true;
-  housePositionX = 0;  // Keep centered on east-west axis
-  housePositionZ = 0;  // Will be calculated based on map size - halfway to south coast
 
-  // House material colors
-  wallColor = '#d4af37'; // Gold color for walls
-  roofColor = '#8b4513'; // Brown for roof
-  windowColor = '#87ceeb'; // Sky blue for windows
-  doorColor = '#654321'; // Dark brown for door
-
-  // Section properties
-  sectionAreaSqM = 400; // Square meters for section around house
-  showSection = true;
 
   // Diet properties for food production area
   selectedDiet = 'vegan'; // Default diet
-  showFoodArea = true; // Enable food production areas
-  dietRequirements = {
+   dietRequirements = {
     vegan: 150,
     vegetarian: 250,
     pescatarian: 350,
@@ -106,21 +88,7 @@ export class SquareMapComponent implements AfterViewInit {
   usePopulationSizing = true;
   selectedYear = 2025;
 
-  // Garden and farm properties
-  showGardenObjects = false;
-  showFarmModels = true;
-  showClothingModels = true;
-
-  // Clothing area properties
-  showClothingArea = true; // Enable clothing production areas
-  selectedClothingConsumption = 'medium';
-  clothingRequirements = {
-    low: 200,
-    medium: 500,
-    high: 1000
-  };
-
-  // Transition state management
+ 
   isUpdating = false;
   transitionDuration = 300; // milliseconds
   private updateTimeout: any;
@@ -140,7 +108,6 @@ export class SquareMapComponent implements AfterViewInit {
   private desertsMesh!: THREE.InstancedMesh;
   private saltwaterMesh!: THREE.InstancedMesh;
   private freshwaterMesh!: THREE.InstancedMesh;
-  private currentHouseFootprint: Set<string> = new Set();
   private tileToInstanceMap: Map<string, {mesh: THREE.InstancedMesh, index: number}> = new Map();
   private originalHeights: Map<string, number> = new Map(); // Cache original terrain heights
 
@@ -367,30 +334,10 @@ export class SquareMapComponent implements AfterViewInit {
   private maxOceanTiles = 0;
   private landTileCount = 0;
   private maxLandTiles = 0;
-  private optimalOceanThreshold?: number;
   
   // Pre-calculated natural island shape for performance
   private naturalIslandMap?: Map<string, boolean>;
 
-  // Getter to ensure section is never smaller than house
-  get minSectionArea(): number {
-    return Math.max(this.houseAreaSqM + 50, 100); // At least 50 sqm larger than house, minimum 100
-  }
-
-  // Ensure section area is valid
-  get validSectionArea(): number {
-    return Math.max(this.sectionAreaSqM, this.minSectionArea);
-  }
-
-  // Get the food production area requirement for selected diet
-  get foodProductionArea(): number {
-    return this.dietRequirements[this.selectedDiet as keyof typeof this.dietRequirements] || 150;
-  }
-
-  // Get clothing production area
-  get clothingProductionArea(): number {
-    return this.clothingRequirements[this.selectedClothingConsumption as keyof typeof this.clothingRequirements] || 5;
-  }
 
   // Helper method for template Math operations
   getAbsDifference(actual: number, expected: number): number {
@@ -587,11 +534,9 @@ export class SquareMapComponent implements AfterViewInit {
       for (let i = -halfSize; i <= halfSize; i++) {
         for (let j = -halfSize; j <= halfSize; j++) {
           const distanceFromCenter = Math.sqrt(i * i + j * j) / halfSize;
-          const inReservedArea = this.isWithinSectionFootprint(i, j) || 
-                                 this.isWithinFoodProductionArea(i, j) || 
-                                 this.isWithinClothingArea(i, j);
+    
           
-          if (distanceFromCenter > threshold && !inReservedArea) {
+          if (distanceFromCenter > threshold) {
             oceanCount++;
           }
         }
@@ -705,15 +650,6 @@ export class SquareMapComponent implements AfterViewInit {
     const distanceFalloff = Math.pow(Math.max(0, 1 - warpedDistance * 1.2), 0.8);
     const adjustedRadius = effectiveRadius * distanceFalloff;
     
-    // Ensure reserved areas are always land
-    const inReservedArea = this.isWithinSectionFootprint(x, z) || 
-                          this.isWithinFoodProductionArea(x, z) || 
-                          this.isWithinClothingArea(x, z);
-    
-    if (inReservedArea) {
-      return true;
-    }
-    
     // 9. Natural coastline determination with erosion simulation
     const coastlineThreshold = adjustedRadius;
     const coastlineNoise = this.seededNoise2D(x * 0.3 + this.terrainSeed, z * 0.3 + this.terrainSeed) * 0.05;
@@ -762,30 +698,6 @@ export class SquareMapComponent implements AfterViewInit {
     if (!isPartOfIsland) {
       // This tile is outside the natural island boundaries - it should be ocean
       return 'saltwater';
-    }
-    
-    // This tile IS part of the natural island, so apply biome clustering logic
-    // Determine terrain type based on location and reserved areas
-    const inReservedArea = this.isWithinSectionFootprint(x, z) || 
-                          this.isWithinFoodProductionArea(x, z) || 
-                          this.isWithinClothingArea(x, z);
-    
-    if (inReservedArea) {
-      let reservedBiome: TerrainType;
-      if (this.isWithinSectionFootprint(x, z)) {
-        reservedBiome = 'urban'; // Urban development
-      } else if (this.isWithinFoodProductionArea(x, z)) {
-        reservedBiome = 'cropland'; // Agricultural land
-      } else {
-        reservedBiome = 'pastureland'; // Grazing/textile production
-      }
-      
-      // Try to place reserved biome, use fallback if quota exceeded
-      if (this.canPlaceBiome(reservedBiome)) {
-        return reservedBiome;
-      } else {
-        return this.getFallbackBiome(reservedBiome, x, z, adjustedDistance);
-      }
     }
 
     // Natural island terrain generation with quota enforcement
@@ -1443,13 +1355,6 @@ export class SquareMapComponent implements AfterViewInit {
     console.log('Map dimensions:', mapSize, 'x', mapSize, '=', squareCount, 'squares');
     console.log('Half size:', halfSize);
     
-    // Calculate house position - halfway to south coastline
-    // The island radius is approximately 85% of halfSize based on terrain generation
-    const islandRadius = halfSize * 0.85;
-    this.housePositionX = 0;  // Keep centered on east-west axis
-    this.housePositionZ = islandRadius * 0.5;  // Halfway to southern coastline (positive Z = south)
-    console.log(`House positioned at: (${this.housePositionX}, ${this.housePositionZ}) - halfway to south coast`);
-    
     // Initialize precise ocean tile counting
     if (this.usePopulationSizing) {
       this.totalTileCount = squareCount;
@@ -1457,7 +1362,6 @@ export class SquareMapComponent implements AfterViewInit {
       this.maxLandTiles = Math.floor(this.totalTileCount * 0.291); // Exactly 29.1% land limit
       this.oceanTileCount = 0;
       this.landTileCount = 0;
-      this.optimalOceanThreshold = undefined; // Reset threshold calculation
       
       console.log('=== INITIALIZING PRECISE TILE COUNTING ===');
       console.log(`Total tiles: ${this.totalTileCount}`);
@@ -1578,9 +1482,6 @@ export class SquareMapComponent implements AfterViewInit {
       pastureland: 0, cropland: 0, scrub: 0, urban: 0
     };
 
-    // Pre-calculate the house level height (flat terrain)
-    const houseLevelHeight = 0.5; // Same as flat terrain height
-
     // Create the squares
     for(let i = -halfSize; i <= halfSize; i++) {
       for(let j = -halfSize; j <= halfSize; j++) {
@@ -1598,18 +1499,8 @@ export class SquareMapComponent implements AfterViewInit {
         // Determine terrain type first to decide height
         let terrainType: VisualTerrainType;
         
-        // Special case: House section area should always be urban stone color  
-        if (this.isWithinSectionFootprint(i, j)) {
-          terrainType = 'urban'; // Urban development
-        }
-        // Special case: Food production area should always be dirt color
-        else if (this.isWithinFoodProductionArea(i, j)) {
-          terrainType = 'cropland';
-        }
-        // Special case: Clothing production area should always be grass color
-        else if (this.isWithinClothingArea(i, j)) {
-          terrainType = 'pastureland'; // Agricultural/textile production
-        } else if (this.usePopulationSizing) {
+  
+        if (this.usePopulationSizing) {
           // Use quota-enforced terrain assignment with natural clustering
           const logicalTerrain = this.getLogicalTerrainType(noise, i, j, Math.sqrt(i * i + j * j) / halfSize);
           
@@ -1644,7 +1535,7 @@ export class SquareMapComponent implements AfterViewInit {
           baseHeight = 0.1;
         } else {
           // For natural island terrain, get the logical type to determine proper elevation
-          if (this.usePopulationSizing && !this.isWithinSectionFootprint(i, j) && !this.isWithinFoodProductionArea(i, j) && !this.isWithinClothingArea(i, j)) {
+          if (this.usePopulationSizing ) {
             // With 1:1 mapping, we can use the visual terrain type directly for height
             switch(terrainType) {
               case 'mountains': baseHeight = 8.0; break;           // True mountains - highest peaks
@@ -1685,21 +1576,7 @@ export class SquareMapComponent implements AfterViewInit {
           matrix = new THREE.Matrix4().makeTranslation(position.x, height, position.y);
           matrix.scale(new THREE.Vector3(1, 0.2, 1)); // Thin water layer
         } else {
-          // Regular terrain height calculation
-          // Check if this tile is within special areas and adjust height accordingly
-          if (this.isWithinHouseFootprint(i, j)) {
-            // Use slightly elevated height for house area
-            height = baseHeight + 0.1;
-          } else if (this.isWithinSectionFootprint(i, j)) {
-            // Use slightly elevated height for section area (same as house)
-            height = baseHeight + 0.1;
-          } else if (this.isWithinFoodProductionArea(i, j)) {
-            // Use slightly elevated height for food production area (same as house)
-            height = baseHeight + 0.1;
-          } else {
-            // Use base height
-            height = baseHeight;
-          }
+          height = baseHeight;
 
           matrix = new THREE.Matrix4().makeTranslation(position.x, height * 0.5, position.y);
           matrix.scale(new THREE.Vector3(1, height, 1));
@@ -1716,7 +1593,7 @@ export class SquareMapComponent implements AfterViewInit {
           
           // Also get logical terrain type for comparison
           let logicalType = 'unknown';
-          if (this.usePopulationSizing && !this.isWithinSectionFootprint(i, j) && !this.isWithinFoodProductionArea(i, j) && !this.isWithinClothingArea(i, j)) {
+          if (this.usePopulationSizing) {
             const adjustedDistance = Math.sqrt(i * i + j * j) / halfSize;
             logicalType = this.getLogicalTerrainType(noise, i, j, adjustedDistance);
           }
@@ -1956,181 +1833,9 @@ export class SquareMapComponent implements AfterViewInit {
     );
     console.log('Terrain meshes added to scene');
     console.log('Scene children count:', this.scene.children.length);
-
-    // Track current house footprint
-    this.updateHouseFootprint();
-
-    // Generate and place house if enabled
-    if (this.showHouse) {
-      this.generateHouse();
-      this.generateSectionBoundary(); // Add section boundary visualization
-      this.generateFoodProductionBoundary(); // Add food production boundary visualization
-      this.generateClothingBoundary(); // Add clothing area boundary visualization
-      this.generateClothingItems(); // Generate cotton bushes and other clothing items
-    }
     
     console.log('Map update completed successfully');
     this.isUpdating = false;
-  }
-
-  updateHouse(): void {
-    // Enforce section size constraint
-    if (this.sectionAreaSqM < this.minSectionArea) {
-      this.sectionAreaSqM = this.minSectionArea;
-    }
-    
-    // For house size/position changes, update only affected terrain tiles
-    // this.updateHouseTerrainSelectively(); // DISABLED: was overriding natural terrain heights
-    
-    // Update food production area terrain colors when food area size changes
-    this.updateFoodProductionAreaTerrain();
-    
-    // For diet changes, only update food models without full terrain regeneration
-    this.clearFoodModels();
-    this.generateFoodItems();
-    
-    // Also update clothing models
-    this.clearClothingModels();
-    this.generateClothingItems();
-  }
-
-  updateHouseAppearance(): void {
-    // Only regenerate the house without redrawing terrain (for non-positional changes)
-    if (this.showHouse) {
-      this.generateHouse();
-      this.generateSectionBoundary(); // Add section boundary visualization
-      this.generateFoodProductionBoundary(); // Add food production boundary visualization
-      this.generateClothingBoundary(); // Add clothing area boundary visualization
-    } else {
-      // Remove house if disabled
-      const existingHouse = this.scene.getObjectByName('procedural-house');
-      if (existingHouse) {
-        this.scene.remove(existingHouse);
-      }
-      // Also remove section boundary
-      const existingSection = this.scene.getObjectByName('section-boundary');
-      if (existingSection) {
-        this.scene.remove(existingSection);
-      }
-      // Also remove food production boundary
-      const existingFoodArea = this.scene.getObjectByName('food-production-boundary');
-      if (existingFoodArea) {
-        this.scene.remove(existingFoodArea);
-      }
-      // Also remove clothing boundary
-      const existingClothingArea = this.scene.getObjectByName('clothing-boundary');
-      if (existingClothingArea) {
-        this.scene.remove(existingClothingArea);
-      }
-      // Also remove food items
-      const existingFoodItems = this.scene.getObjectByName('food-items-group');
-      if (existingFoodItems) {
-        this.scene.remove(existingFoodItems);
-      }
-      // Also remove clothing items
-      const existingClothingItems = this.scene.getObjectByName('clothing-items-group');
-      if (existingClothingItems) {
-        this.scene.remove(existingClothingItems);
-      }
-    }
-  }
-
-  // Update house footprint tracking
-  updateHouseFootprint(): void {
-    this.currentHouseFootprint.clear();
-    if (this.showHouse) {
-      const halfSize = this.mapHalfSize;
-      for(let i = -halfSize; i <= halfSize; i++) {
-        for(let j = -halfSize; j <= halfSize; j++) {
-          if (this.isWithinHouseFootprint(i, j)) {
-            this.currentHouseFootprint.add(`${i},${j}`);
-          }
-        }
-      }
-    }
-  }
-
-  // Selectively update only terrain tiles affected by house changes
-
-  clearFoodModels(): void {
-    // Remove all existing food objects from the scene
-    const objectsToRemove: THREE.Object3D[] = [];
-    
-    this.scene!.traverse((child) => {
-      if (child.userData['type'] === 'food' || child.userData['type'] === 'vegetable' || child.userData['type'] === 'animal') {
-        objectsToRemove.push(child);
-      }
-    });
-    
-    objectsToRemove.forEach(obj => {
-      this.scene!.remove(obj);
-      // Dispose of geometry and materials if they exist
-      if ((obj as any).geometry) {
-        (obj as any).geometry.dispose();
-      }
-      if ((obj as any).material) {
-        if (Array.isArray((obj as any).material)) {
-          (obj as any).material.forEach((mat: any) => mat.dispose());
-        } else {
-          (obj as any).material.dispose();
-        }
-      }
-    });
-  }
-
-  clearClothingModels(): void {
-    // Remove all existing clothing objects from the scene
-    const objectsToRemove: THREE.Object3D[] = [];
-    
-    this.scene!.traverse((child) => {
-      if (child.userData['type'] === 'clothing' || child.userData['type'] === 'cotton') {
-        objectsToRemove.push(child);
-      }
-    });
-    
-    objectsToRemove.forEach(obj => {
-      this.scene!.remove(obj);
-      // Dispose of geometry and materials if they exist
-      if ((obj as any).geometry) {
-        (obj as any).geometry.dispose();
-      }
-      if ((obj as any).material) {
-        if (Array.isArray((obj as any).material)) {
-          (obj as any).material.forEach((mat: any) => mat.dispose());
-        } else {
-          (obj as any).material.dispose();
-        }
-      }
-    });
-  }
-
-  updateFoodProductionAreaTerrain(): void {
-    if (!this.tileToInstanceMap || this.tileToInstanceMap.size === 0) {
-      return; // No terrain to update yet
-    }
-
-    const halfSize = this.mapHalfSize;
-    
-    // Update terrain for all tiles to ensure food production area has dirt color
-    for(let i = -halfSize; i <= halfSize; i++) {
-      for(let j = -halfSize; j <= halfSize; j++) {
-        const tileKey = `${i},${j}`;
-        const tileInfo = this.tileToInstanceMap.get(tileKey);
-        
-        if (tileInfo) {
-          const shouldBeDirt = this.isWithinFoodProductionArea(i, j);
-          const currentlyDirt = tileInfo.mesh === this.croplandMesh || tileInfo.mesh === this.scrubMesh;
-          
-          // If it should be dirt but isn't, or shouldn't be dirt but is, update it
-          if (shouldBeDirt && !currentlyDirt) {
-            this.reassignTileToMesh(i, j, 'cropland');
-          } else if (!shouldBeDirt && currentlyDirt && !this.isWithinHouseFootprint(i, j) && !this.isWithinSectionFootprint(i, j)) {
-            // If it's currently dirt but shouldn't be (and not house/section), reassign based on normal terrain logic
-            this.reassignTileToNormalTerrain(i, j);
-          }
-        }
-      }
-    }
   }
 
   reassignTileToMesh(tileX: number, tileZ: number, targetTerrainType: VisualTerrainType): void {
@@ -2202,14 +1907,7 @@ export class SquareMapComponent implements AfterViewInit {
     
     let terrainType: VisualTerrainType;
     
-    // Special case: House section area should always be urban stone color
-    if (this.isWithinSectionFootprint(tileX, tileZ)) {
-      terrainType = 'urban'; // Urban development
-    }
-    // Special case: Clothing production area should always be grass color
-    else if (this.isWithinClothingArea(tileX, tileZ)) {
-      terrainType = 'temperateForest'; // Agricultural/textile production
-    } else if (this.usePopulationSizing) {
+    if (this.usePopulationSizing) {
       // Use land distribution-based terrain assignment with island layout
       terrainType = this.getTerrainTypeFromNoise(noise, tileX, tileZ);
     } else {
@@ -2233,13 +1931,6 @@ export class SquareMapComponent implements AfterViewInit {
     this.reassignTileToMesh(tileX, tileZ, terrainType);
   }
 
-  updateHouseTerrainSelectively(): void {
-    // DISABLED: This method was overriding terrain heights, preventing natural elevation
-    // If you need building height adjustments, re-enable with terrain-aware height calculation
-    console.log('updateHouseTerrainSelectively() disabled to preserve natural terrain heights');
-    return;
-  }
-
   // Debounced update to prevent too many rapid updates
   debouncedUpdateMap(): void {
     if (this.updateTimeout) {
@@ -2251,802 +1942,10 @@ export class SquareMapComponent implements AfterViewInit {
     }, 100); // 100ms debounce
   }
 
-  generateHouse(): void {
-    // Remove existing house if any
-    const existingHouse = this.scene.getObjectByName('procedural-house');
-    if (existingHouse) {
-      this.scene.remove(existingHouse);
-    }
-
-    // Calculate house dimensions from area
-    const houseWidth = Math.sqrt(this.houseAreaSqM);
-    const houseDepth = Math.sqrt(this.houseAreaSqM);
-    const totalHeight = this.numberOfFloors * this.floorHeight;
-
-    // Get terrain height at house position
-    const terrainHeight = this.getTerrainHeightAt(this.housePositionX, this.housePositionZ);
-
-    // Create house group
-    const houseGroup = new THREE.Group();
-    houseGroup.name = 'procedural-house';
-
-    // Materials with selectable colors
-    const wallMaterial = new THREE.MeshLambertMaterial({ color: this.wallColor });
-    const roofMaterial = new THREE.MeshLambertMaterial({ color: this.roofColor });
-    const windowMaterial = new THREE.MeshLambertMaterial({ color: this.windowColor });
-    const doorMaterial = new THREE.MeshLambertMaterial({ color: this.doorColor });
-
-    // Generate each floor
-    for (let floor = 0; floor < this.numberOfFloors; floor++) {
-      const floorY = terrainHeight + floor * this.floorHeight; // Position relative to terrain height
-      
-      // Main structure for this floor
-      const wallGeometry = new THREE.BoxGeometry(houseWidth, this.floorHeight, houseDepth);
-      const wallMesh = new THREE.Mesh(wallGeometry, wallMaterial);
-      wallMesh.position.set(this.housePositionX, floorY + this.floorHeight / 2, this.housePositionZ);
-      wallMesh.castShadow = true;
-      wallMesh.receiveShadow = true;
-      houseGroup.add(wallMesh);
-
-      // Add windows (procedurally placed based on floor)
-      const windowsPerSide = Math.max(1, Math.floor(houseWidth / 3));
-      for (let i = 0; i < windowsPerSide; i++) {
-        // Front windows
-        const windowGeometry = new THREE.BoxGeometry(0.8, 0.8, 0.1);
-        const frontWindow = new THREE.Mesh(windowGeometry, windowMaterial);
-        const windowSpacing = houseWidth / (windowsPerSide + 1);
-        frontWindow.position.set(
-          this.housePositionX - houseWidth/2 + windowSpacing * (i + 1),
-          floorY + this.floorHeight * 0.6,
-          this.housePositionZ + houseDepth/2 + 0.05
-        );
-        houseGroup.add(frontWindow);
-
-        // Back windows
-        const backWindow = frontWindow.clone();
-        backWindow.position.z = this.housePositionZ - houseDepth/2 - 0.05;
-        houseGroup.add(backWindow);
-      }
-
-      // Add door only on ground floor
-      if (floor === 0) {
-        const doorGeometry = new THREE.BoxGeometry(1, 2, 0.1);
-        const door = new THREE.Mesh(doorGeometry, doorMaterial);
-        door.position.set(
-          this.housePositionX,
-          terrainHeight + 1, // Position door relative to terrain height
-          this.housePositionZ + houseDepth/2 + 0.05
-        );
-        houseGroup.add(door);
-      }
-    }
-
-    // Add roof
-    const roofGeometry = new THREE.ConeGeometry(
-      Math.max(houseWidth, houseDepth) * 0.8,
-      this.floorHeight * 0.8,
-      4
-    );
-    const roof = new THREE.Mesh(roofGeometry, roofMaterial);
-    roof.position.set(
-      this.housePositionX,
-      terrainHeight + totalHeight + this.floorHeight * 0.4, // Position roof relative to terrain height
-      this.housePositionZ
-    );
-    roof.rotation.y = Math.PI / 4; // Rotate 45 degrees for diamond shape
-    roof.castShadow = true;
-    houseGroup.add(roof);
-
-    // Add chimney (if more than 1 floor)
-    if (this.numberOfFloors > 1) {
-      const chimneyGeometry = new THREE.BoxGeometry(0.5, this.floorHeight * 0.6, 0.5);
-      const chimney = new THREE.Mesh(chimneyGeometry, wallMaterial);
-      chimney.position.set(
-        this.housePositionX + houseWidth * 0.3,
-        terrainHeight + totalHeight + this.floorHeight * 0.7, // Position chimney relative to terrain height
-        this.housePositionZ + houseDepth * 0.3
-      );
-      chimney.castShadow = true;
-      houseGroup.add(chimney);
-    }
-
-    this.scene.add(houseGroup);
-  }
-
-  generateSectionBoundary(): void {
-    // Remove existing section boundary if any
-    const existingSection = this.scene.getObjectByName('section-boundary');
-    if (existingSection) {
-      this.scene.remove(existingSection);
-    }
-
-    if (!this.showSection || !this.showHouse) {
-      return; // Don't show section if not enabled or no house
-    }
-
-    // Calculate section dimensions
-    const sectionWidth = Math.sqrt(this.validSectionArea);
-    const sectionDepth = Math.sqrt(this.validSectionArea);
-    const groundHeight = this.getHouseLevelHeight();
-
-    // Create wireframe boundary for the section
-    const sectionGeometry = new THREE.PlaneGeometry(sectionWidth, sectionDepth);
-    const sectionEdges = new THREE.EdgesGeometry(sectionGeometry);
-    const sectionMaterial = new THREE.LineBasicMaterial({ 
-      color: 0x00ff00, // Green color for section boundary
-      linewidth: 2,
-      transparent: true,
-      opacity: 0.7
-    });
-    const sectionBoundary = new THREE.LineSegments(sectionEdges, sectionMaterial);
-    
-    // Position the section boundary
-    sectionBoundary.position.set(this.housePositionX, groundHeight + 0.1, this.housePositionZ);
-    sectionBoundary.rotation.x = -Math.PI / 2; // Rotate to lie flat on ground
-    sectionBoundary.name = 'section-boundary';
-
-    this.scene.add(sectionBoundary);
-  }
-
-  generateFoodProductionBoundary(): void {
-    // Remove existing food production boundary if any
-    const existingFoodArea = this.scene.getObjectByName('food-production-boundary');
-    if (existingFoodArea) {
-      this.scene.remove(existingFoodArea);
-    }
-
-    if (!this.showFoodArea || !this.showHouse) {
-      return; // Don't show food area if not enabled or no house
-    }
-
-    // Calculate food area dimensions
-    const foodAreaWidth = Math.sqrt(this.foodProductionArea);
-    const foodAreaDepth = Math.sqrt(this.foodProductionArea);
-    const groundHeight = this.getHouseLevelHeight();
-
-    // Position food area adjacent to section area
-    const sectionWidth = Math.sqrt(this.validSectionArea);
-    const foodAreaOffsetX = this.housePositionX + sectionWidth/2 + foodAreaWidth/2 + 5; // 5 meter gap
-
-    // Create wireframe boundary for the food production area
-    const foodAreaGeometry = new THREE.PlaneGeometry(foodAreaWidth, foodAreaDepth);
-    const foodAreaEdges = new THREE.EdgesGeometry(foodAreaGeometry);
-    const foodAreaMaterial = new THREE.LineBasicMaterial({ 
-      color: 0xff6600, // Orange color for food production boundary
-      linewidth: 2,
-      transparent: true,
-      opacity: 0.7
-    });
-    const foodProductionBoundary = new THREE.LineSegments(foodAreaEdges, foodAreaMaterial);
-    
-    // Position the food production boundary
-    foodProductionBoundary.position.set(foodAreaOffsetX, groundHeight + 0.1, this.housePositionZ);
-    foodProductionBoundary.rotation.x = -Math.PI / 2; // Rotate to lie flat on ground
-    foodProductionBoundary.name = 'food-production-boundary';
-
-    this.scene.add(foodProductionBoundary);
-    
-    // Generate food items within the food production area
-    this.generateFoodItems();
-  }
-
-  generateClothingBoundary(): void {
-    // Remove existing clothing boundary if any
-    const existingClothingArea = this.scene.getObjectByName('clothing-boundary');
-    if (existingClothingArea) {
-      this.scene.remove(existingClothingArea);
-    }
-
-    if (!this.showClothingArea || !this.showHouse) {
-      return; // Don't show clothing area if not enabled or no house
-    }
-
-    // Calculate clothing area dimensions
-    const clothingAreaWidth = Math.sqrt(this.clothingProductionArea);
-    const clothingAreaDepth = Math.sqrt(this.clothingProductionArea);
-    const groundHeight = this.getHouseLevelHeight();
-
-    // Position clothing area adjacent to food area
-    const sectionWidth = Math.sqrt(this.validSectionArea);
-    const foodAreaWidth = Math.sqrt(this.foodProductionArea);
-    const clothingAreaOffsetX = this.housePositionX + sectionWidth/2 + foodAreaWidth + clothingAreaWidth/2 + 10; // 5m gap from section + food area + 5m gap
-
-    // Create wireframe boundary for the clothing area
-    const clothingAreaGeometry = new THREE.PlaneGeometry(clothingAreaWidth, clothingAreaDepth);
-    const clothingAreaEdges = new THREE.EdgesGeometry(clothingAreaGeometry);
-    const clothingAreaMaterial = new THREE.LineBasicMaterial({ 
-      color: 0x9932cc, // Purple color for clothing area boundary
-      linewidth: 2,
-      transparent: true,
-      opacity: 0.7
-    });
-    const clothingBoundary = new THREE.LineSegments(clothingAreaEdges, clothingAreaMaterial);
-    
-    // Position the clothing boundary
-    clothingBoundary.position.set(clothingAreaOffsetX, groundHeight + 0.1, this.housePositionZ);
-    clothingBoundary.rotation.x = -Math.PI / 2; // Rotate to lie flat on ground
-    clothingBoundary.name = 'clothing-boundary';
-
-    this.scene.add(clothingBoundary);
-    
-    // Generate clothing items within the clothing area
-    this.generateClothingItems();
-  }
-
-  generateFoodItems(): void {
-    // Remove existing food items if any
-    const existingFoodItems = this.scene.getObjectByName('food-items-group');
-    if (existingFoodItems) {
-      this.scene.remove(existingFoodItems);
-    }
-
-    if (!this.showFoodArea || !this.showHouse || !this.showFarmModels) {
-      return; // Don't show food items if not enabled or no house or farm models disabled
-    }
-
-    const foodItemsGroup = new THREE.Group();
-    foodItemsGroup.name = 'food-items-group';
-
-    // Calculate food area dimensions and position
-    const foodAreaWidth = Math.sqrt(this.foodProductionArea);
-    const foodAreaDepth = Math.sqrt(this.foodProductionArea);
-    const groundHeight = this.getHouseLevelHeight();
-    const sectionWidth = Math.sqrt(this.validSectionArea);
-    const foodAreaOffsetX = this.housePositionX + sectionWidth/2 + foodAreaWidth/2 + 5; // 5 meter gap
-
-    // Generate vegetables (always present in all diets)
-    this.generateVegetables(foodItemsGroup, foodAreaOffsetX, groundHeight, foodAreaWidth, foodAreaDepth);
-
-    // Generate animals based on diet type
-    if (this.selectedDiet !== 'vegan' && this.selectedDiet !== 'vegetarian') {
-      this.generateAnimals(foodItemsGroup, foodAreaOffsetX, groundHeight, foodAreaWidth, foodAreaDepth);
-    }
-
-    this.scene.add(foodItemsGroup);
-  }
-
-  generateVegetables(group: THREE.Group, centerX: number, groundHeight: number, width: number, depth: number): void {
-    // Use a fixed seed based on house position and food area to ensure consistent vegetable placement
-    let seed = Math.floor(this.housePositionX * 1000 + this.housePositionZ * 1000 + this.foodProductionArea);
-    const seededRandom = () => {
-      seed = (seed * 9301 + 49297) % 233280;
-      return seed / 233280;
-    };
-    
-    // Farm-style row configuration
-    const rowSpacing = 3.0; // 3 meters between rows
-    const plantSpacing = 1.5; // 1.5 meters between plants in a row
-    const rowCount = Math.floor(depth / rowSpacing);
-    const plantsPerRow = Math.floor(width / plantSpacing);
-    
-    // Create alternating crop types for different rows (crop rotation simulation)
-    const cropTypes = [0, 1, 2, 3]; // carrot, cabbage, tomato, corn
-    
-    for (let row = 0; row < rowCount; row++) {
-      const cropType = cropTypes[row % cropTypes.length]; // Rotate crop types by row
-      const rowZ = this.housePositionZ - depth/2 + row * rowSpacing + rowSpacing/2;
-      
-      for (let plant = 0; plant < plantsPerRow; plant++) {
-        const plantX = centerX - width/2 + plant * plantSpacing + plantSpacing/2;
-        
-        // Add slight random variation to avoid perfect grid look (±0.2m)
-        const x = plantX + (seededRandom() - 0.5) * 0.4;
-        const z = rowZ + (seededRandom() - 0.5) * 0.4;
-        // Use row-specific crop type instead of random
-        const vegetableType = cropType;
-        let vegetable: THREE.Mesh;
-        
-        switch (vegetableType) {
-          case 0: // Carrot - orange cone
-            const carrotGeometry = new THREE.ConeGeometry(0.3, 1.2, 8);
-            const carrotMaterial = new THREE.MeshPhongMaterial({ color: 0xff6600 });
-            vegetable = new THREE.Mesh(carrotGeometry, carrotMaterial);
-            vegetable.position.set(x, groundHeight + 0.6, z);
-            
-            // Add green leafy top
-            const leavesGeometry = new THREE.ConeGeometry(0.4, 0.8, 6);
-            const leavesMaterial = new THREE.MeshPhongMaterial({ color: 0x228b22 });
-            const leaves = new THREE.Mesh(leavesGeometry, leavesMaterial);
-            leaves.position.set(0, 0.8, 0);
-            vegetable.add(leaves);
-            break;
-            
-          case 1: // Cabbage - green sphere
-            const cabbageGeometry = new THREE.SphereGeometry(0.8, 8, 6);
-            const cabbageMaterial = new THREE.MeshPhongMaterial({ color: 0x90ee90 });
-            vegetable = new THREE.Mesh(cabbageGeometry, cabbageMaterial);
-            vegetable.position.set(x, groundHeight + 0.8, z);
-            break;
-            
-          case 2: // Tomato plant - red spheres on green stick
-            const stickGeometry = new THREE.CylinderGeometry(0.1, 0.1, 2);
-            const stickMaterial = new THREE.MeshPhongMaterial({ color: 0x228b22 });
-            vegetable = new THREE.Mesh(stickGeometry, stickMaterial);
-            vegetable.position.set(x, groundHeight + 1, z);
-            
-            // Add tomatoes using seeded random for consistent placement
-            for (let j = 0; j < 3; j++) {
-              const tomatoGeometry = new THREE.SphereGeometry(0.3, 6, 4);
-              const tomatoMaterial = new THREE.MeshPhongMaterial({ color: 0xff4500 });
-              const tomato = new THREE.Mesh(tomatoGeometry, tomatoMaterial);
-              tomato.position.set(
-                (seededRandom() - 0.5) * 0.6,
-                0.3 + j * 0.4,
-                (seededRandom() - 0.5) * 0.6
-              );
-              vegetable.add(tomato);
-            }
-            break;
-            
-          case 3: // Corn - yellow cylinder with green leaves
-            const cornGeometry = new THREE.CylinderGeometry(0.3, 0.2, 1.5, 8);
-            const cornMaterial = new THREE.MeshPhongMaterial({ color: 0xffd700 });
-            vegetable = new THREE.Mesh(cornGeometry, cornMaterial);
-            vegetable.position.set(x, groundHeight + 0.75, z);
-            
-            // Add corn husk
-            const huskGeometry = new THREE.CylinderGeometry(0.35, 0.25, 1.6, 6);
-            const huskMaterial = new THREE.MeshPhongMaterial({ color: 0x9acd32 });
-            const husk = new THREE.Mesh(huskGeometry, huskMaterial);
-            husk.position.set(0, 0, 0);
-            vegetable.add(husk);
-            break;
-            
-          default:
-            vegetable = new THREE.Mesh();
-        }
-        
-        // Mark as vegetable type for cleanup
-        vegetable.userData['type'] = 'vegetable';
-        
-        group.add(vegetable);
-      }
-    }
-  }
-
-  generateAnimals(group: THREE.Group, centerX: number, groundHeight: number, width: number, depth: number): void {
-    const animalCount = Math.floor(this.foodProductionArea / 50); // One animal per 50 sq m (increased density)
-    
-    // Use a fixed seed based on house position and food area to ensure consistent animal placement
-    let seed = Math.floor(this.housePositionX * 1000 + this.housePositionZ * 1000 + this.foodProductionArea + 12345); // Different offset from vegetables
-    const seededRandom = () => {
-      seed = (seed * 9301 + 49297) % 233280;
-      return seed / 233280;
-    };
-    
-    for (let i = 0; i < animalCount; i++) {
-      // Deterministic position within food area using seeded random
-      const x = centerX + (seededRandom() - 0.5) * width * 0.8;
-      const z = this.housePositionZ + (seededRandom() - 0.5) * depth * 0.8;
-      
-      // Create different types of animals deterministically
-      const animalType = Math.floor(seededRandom() * 3);
-      let animal: THREE.Group;
-      
-      switch (animalType) {
-        case 0: // Chicken - small white body with red comb
-          animal = new THREE.Group();
-          
-          // Body
-          const chickenBodyGeometry = new THREE.SphereGeometry(0.5, 8, 6);
-          const chickenBodyMaterial = new THREE.MeshPhongMaterial({ color: 0xffffff });
-          const chickenBody = new THREE.Mesh(chickenBodyGeometry, chickenBodyMaterial);
-          chickenBody.position.set(0, 0.5, 0);
-          animal.add(chickenBody);
-          
-          // Head
-          const chickenHeadGeometry = new THREE.SphereGeometry(0.3, 6, 4);
-          const chickenHead = new THREE.Mesh(chickenHeadGeometry, chickenBodyMaterial);
-          chickenHead.position.set(0, 1, 0.4);
-          animal.add(chickenHead);
-          
-          // Comb
-          const combGeometry = new THREE.SphereGeometry(0.15, 4, 3);
-          const combMaterial = new THREE.MeshPhongMaterial({ color: 0xff0000 });
-          const comb = new THREE.Mesh(combGeometry, combMaterial);
-          comb.position.set(0, 1.3, 0.4);
-          animal.add(comb);
-          
-          break;
-          
-        case 1: // Pig - pink cylindrical body
-          animal = new THREE.Group();
-          
-          // Body
-          const pigBodyGeometry = new THREE.CylinderGeometry(0.8, 0.8, 1.5, 8);
-          const pigBodyMaterial = new THREE.MeshPhongMaterial({ color: 0xffc0cb });
-          const pigBody = new THREE.Mesh(pigBodyGeometry, pigBodyMaterial);
-          pigBody.rotation.z = Math.PI / 2;
-          pigBody.position.set(0, 0.8, 0);
-          animal.add(pigBody);
-          
-          // Head
-          const pigHeadGeometry = new THREE.SphereGeometry(0.6, 8, 6);
-          const pigHead = new THREE.Mesh(pigHeadGeometry, pigBodyMaterial);
-          pigHead.position.set(0.8, 0.8, 0);
-          animal.add(pigHead);
-          
-          // Snout
-          const snoutGeometry = new THREE.CylinderGeometry(0.25, 0.25, 0.3, 6);
-          const snout = new THREE.Mesh(snoutGeometry, pigBodyMaterial);
-          snout.rotation.z = Math.PI / 2;
-          snout.position.set(1.2, 0.8, 0);
-          animal.add(snout);
-          
-          break;
-          
-        case 2: // Cow - black and white spotted body
-          animal = new THREE.Group();
-          
-          // Body
-          const cowBodyGeometry = new THREE.BoxGeometry(2, 1.2, 1);
-          const cowBodyMaterial = new THREE.MeshPhongMaterial({ color: 0xffffff });
-          const cowBody = new THREE.Mesh(cowBodyGeometry, cowBodyMaterial);
-          cowBody.position.set(0, 1.2, 0);
-          animal.add(cowBody);
-          
-          // Add black spots
-          for (let j = 0; j < 4; j++) {
-            const spotGeometry = new THREE.SphereGeometry(0.3, 6, 4);
-            const spotMaterial = new THREE.MeshPhongMaterial({ color: 0x000000 });
-            const spot = new THREE.Mesh(spotGeometry, spotMaterial);
-            spot.position.set(
-              (Math.random() - 0.5) * 1.8,
-              1.2 + (Math.random() - 0.5) * 1,
-              (Math.random() - 0.5) * 0.8
-            );
-            animal.add(spot);
-          }
-          
-          // Head
-          const cowHeadGeometry = new THREE.BoxGeometry(0.8, 0.8, 0.6);
-          const cowHead = new THREE.Mesh(cowHeadGeometry, cowBodyMaterial);
-          cowHead.position.set(1.2, 1.5, 0);
-          animal.add(cowHead);
-          
-          // Horns
-          const hornGeometry = new THREE.ConeGeometry(0.1, 0.4, 4);
-          const hornMaterial = new THREE.MeshPhongMaterial({ color: 0x8b4513 });
-          const horn1 = new THREE.Mesh(hornGeometry, hornMaterial);
-          const horn2 = new THREE.Mesh(hornGeometry, hornMaterial);
-          horn1.position.set(1.2, 1.9, -0.2);
-          horn2.position.set(1.2, 1.9, 0.2);
-          animal.add(horn1);
-          animal.add(horn2);
-          
-          break;
-          
-        default:
-          animal = new THREE.Group();
-      }
-      
-      animal.position.set(x, groundHeight, z);
-      group.add(animal);
-    }
-  }
-
-  generateClothingItems(): void {
-    // Remove existing clothing items if any
-    const existingClothingItems = this.scene.getObjectByName('clothing-items-group');
-    if (existingClothingItems) {
-      this.scene.remove(existingClothingItems);
-    }
-
-    if (!this.showClothingArea || !this.showHouse || !this.showClothingModels) {
-      return; // Don't show clothing items if not enabled or no house or clothing models disabled
-    }
-
-    const clothingItemsGroup = new THREE.Group();
-    clothingItemsGroup.name = 'clothing-items-group';
-
-    // Calculate clothing area dimensions and position
-    const clothingAreaWidth = Math.sqrt(this.clothingProductionArea);
-    const clothingAreaDepth = Math.sqrt(this.clothingProductionArea);
-    const groundHeight = this.getHouseLevelHeight();
-    
-    // Position clothing area adjacent to food area
-    const sectionWidth = Math.sqrt(this.validSectionArea);
-    const foodAreaWidth = Math.sqrt(this.foodProductionArea);
-    const clothingAreaOffsetX = this.housePositionX + sectionWidth/2 + foodAreaWidth + clothingAreaWidth/2 + 10; // 5m gap from section + food area + 5m gap
-
-    // Generate cotton bushes
-    this.generateCottonBushes(clothingItemsGroup, clothingAreaOffsetX, groundHeight, clothingAreaWidth, clothingAreaDepth);
-
-    this.scene.add(clothingItemsGroup);
-  }
-
-  generateCottonBushes(group: THREE.Group, centerX: number, groundHeight: number, width: number, depth: number): void {
-    // Use a fixed seed based on house position and clothing area to ensure consistent cotton bush placement
-    let seed = Math.floor(this.housePositionX * 1000 + this.housePositionZ * 1000 + this.clothingProductionArea + 54321); // Different offset from food items
-    const seededRandom = () => {
-      seed = (seed * 9301 + 49297) % 233280;
-      return seed / 233280;
-    };
-    
-    // Cotton field row configuration - cotton needs wider spacing than vegetables
-    const rowSpacing = 4.0; // 4 meters between rows (wider for cotton cultivation)
-    const plantSpacing = 2.0; // 2 meters between cotton bushes in a row
-    const rowCount = Math.floor(depth / rowSpacing);
-    const plantsPerRow = Math.floor(width / plantSpacing);
-    
-    for (let row = 0; row < rowCount; row++) {
-      const rowZ = this.housePositionZ - depth/2 + row * rowSpacing + rowSpacing/2;
-      
-      for (let plant = 0; plant < plantsPerRow; plant++) {
-        const plantX = centerX - width/2 + plant * plantSpacing + plantSpacing/2;
-        
-        // Add slight random variation to avoid perfect grid look (±0.3m)
-        const x = plantX + (seededRandom() - 0.5) * 0.6;
-        const z = rowZ + (seededRandom() - 0.5) * 0.6;
-        
-        // Create cotton bush - procedurally generated
-        const cottonBush = this.createCottonBush(seededRandom);
-        cottonBush.position.set(x, groundHeight, z);
-        
-        // Add random rotation for variety
-        cottonBush.rotation.y = seededRandom() * Math.PI * 2;
-        
-        // Mark as clothing type for cleanup
-        cottonBush.userData['type'] = 'cotton';
-        
-        group.add(cottonBush);
-      }
-    }
-  }
-
-  createCottonBush(seededRandom: () => number): THREE.Group {
-    const cottonBush = new THREE.Group();
-    
-    // Main stem - brown woody cylinder
-    const stemGeometry = new THREE.CylinderGeometry(0.15, 0.2, 1.5, 8);
-    const stemMaterial = new THREE.MeshPhongMaterial({ color: 0x8b4513 }); // Brown
-    const stem = new THREE.Mesh(stemGeometry, stemMaterial);
-    stem.position.set(0, 0.75, 0);
-    cottonBush.add(stem);
-    
-    // Create several branches
-    const branchCount = 3 + Math.floor(seededRandom() * 3); // 3-5 branches
-    for (let i = 0; i < branchCount; i++) {
-      const branchHeight = 0.3 + seededRandom() * 0.6; // Height between 0.3 and 0.9
-      const branchAngle = (seededRandom() * Math.PI * 2); // Random angle around stem
-      const branchLength = 0.8 + seededRandom() * 0.4; // Length between 0.8 and 1.2
-      
-      // Branch geometry
-      const branchGeometry = new THREE.CylinderGeometry(0.05, 0.08, branchLength, 6);
-      const branchMaterial = new THREE.MeshPhongMaterial({ color: 0x228b22 }); // Green
-      const branch = new THREE.Mesh(branchGeometry, branchMaterial);
-      
-      // Position and rotate branch
-      branch.position.set(
-        Math.cos(branchAngle) * 0.2,
-        branchHeight,
-        Math.sin(branchAngle) * 0.2
-      );
-      branch.rotation.z = Math.cos(branchAngle) * 0.3; // Slight outward tilt
-      branch.rotation.x = Math.sin(branchAngle) * 0.3;
-      
-      cottonBush.add(branch);
-      
-      // Add cotton bolls to this branch
-      const bollCount = 2 + Math.floor(seededRandom() * 3); // 2-4 bolls per branch
-      for (let j = 0; j < bollCount; j++) {
-        const boll = this.createCottonBoll(seededRandom);
-        
-        // Position bolls along the branch
-        const bollPosition = 0.2 + (j / bollCount) * 0.6; // Along the branch length
-        boll.position.set(
-          Math.cos(branchAngle) * branchLength * bollPosition,
-          branchHeight + (bollPosition - 0.5) * 0.3,
-          Math.sin(branchAngle) * branchLength * bollPosition
-        );
-        
-        cottonBush.add(boll);
-      }
-    }
-    
-    // Add some leaves scattered around
-    const leafCount = 8 + Math.floor(seededRandom() * 6); // 8-13 leaves
-    for (let i = 0; i < leafCount; i++) {
-      const leaf = this.createCottonLeaf(seededRandom);
-      
-      // Position leaves around the plant
-      const leafAngle = seededRandom() * Math.PI * 2;
-      const leafRadius = 0.3 + seededRandom() * 0.5;
-      const leafHeight = 0.2 + seededRandom() * 1.0;
-      
-      leaf.position.set(
-        Math.cos(leafAngle) * leafRadius,
-        leafHeight,
-        Math.sin(leafAngle) * leafRadius
-      );
-      
-      cottonBush.add(leaf);
-    }
-    
-    return cottonBush;
-  }
-
-  private createCottonBoll(seededRandom: () => number): THREE.Group {
-    const boll = new THREE.Group();
-    
-    // Brown pod/capsule at the base
-    const podGeometry = new THREE.SphereGeometry(0.2, 6, 4);
-    const podMaterial = new THREE.MeshPhongMaterial({ color: 0x8b6914 }); // Dark brown
-    const pod = new THREE.Mesh(podGeometry, podMaterial);
-    boll.add(pod);
-    
-    // White fluffy cotton emerging from the pod
-    const cottonPuffs = 3 + Math.floor(seededRandom() * 2); // 3-4 puffs
-    for (let i = 0; i < cottonPuffs; i++) {
-      const puffGeometry = new THREE.SphereGeometry(0.15 + seededRandom() * 0.1, 4, 3);
-      const puffMaterial = new THREE.MeshPhongMaterial({ 
-        color: 0xffffff, 
-        transparent: true, 
-        opacity: 0.9 
-      });
-      const puff = new THREE.Mesh(puffGeometry, puffMaterial);
-      
-      // Position puffs slightly outside and above the pod
-      const puffAngle = (i / cottonPuffs) * Math.PI * 2 + seededRandom() * 0.5;
-      puff.position.set(
-        Math.cos(puffAngle) * 0.15,
-        0.1 + seededRandom() * 0.1,
-        Math.sin(puffAngle) * 0.15
-      );
-      
-      boll.add(puff);
-    }
-    
-    return boll;
-  }
-
-  private createCottonLeaf(seededRandom: () => number): THREE.Mesh {
-    // Create a simple leaf shape using a flattened sphere
-    const leafGeometry = new THREE.SphereGeometry(0.2, 6, 3);
-    leafGeometry.scale(1, 0.1, 1.5); // Flatten and elongate
-    
-    const leafMaterial = new THREE.MeshPhongMaterial({ 
-      color: 0x228b22, // Green
-      side: THREE.DoubleSide 
-    });
-    
-    const leaf = new THREE.Mesh(leafGeometry, leafMaterial);
-    
-    // Add some random rotation for natural look
-    leaf.rotation.x = (seededRandom() - 0.5) * 0.5;
-    leaf.rotation.y = seededRandom() * Math.PI * 2;
-    leaf.rotation.z = (seededRandom() - 0.5) * 0.3;
-    
-    return leaf;
-  }
-
   private tileToPosition(tileX: number, tileY: number): THREE.Vector2 {
     return new THREE.Vector2(tileX * 1, tileY * 1);
   }
 
-  // Method to calculate terrain height at any world position
-  private getTerrainHeightAt(worldX: number, worldZ: number): number {
-    // Convert world position to tile coordinates
-    // Since each tile is 1m x 1m and positioned from -halfSize to +halfSize
-    const tileX = Math.round(worldX);
-    const tileZ = Math.round(worldZ);
-    
-    // Get terrain type for this position
-    const terrainType = this.getTerrainTypeFromNoise(tileX, tileZ);
-    
-    // Water tiles stay at 0.5m, land tiles are elevated based on terrain type
-    if (terrainType === 'saltwater' || terrainType === 'freshwater') { // Ocean/water tiles
-      return 0.5;
-    } else { // All land tiles - use terrain-specific heights
-      // Simple height mapping for terrain height queries
-      switch(terrainType) {
-        case 'mountains': return 8.5;
-        case 'tundra': return 7.0;
-        case 'urban': return 6.0;
-        case 'borealForest': return 5.0;
-        case 'temperateForest': return 4.0;
-        case 'tropicalRainforest': return 3.5;
-        case 'temperateGrassland': return 3.0;
-        case 'pastureland': return 2.5;
-        case 'cropland': return 2.3;
-        case 'savanna': return 2.0;
-        case 'scrub': return 1.5;
-        case 'deserts': return 1.3;
-        default: return 2.0;
-      }
-    }
-  }
-
-  // Method to check if a tile position is within the house footprint
-  private isWithinHouseFootprint(tileX: number, tileZ: number): boolean {
-    if (!this.showHouse) return false;
-    
-    const worldPos = this.tileToPosition(tileX, tileZ);
-    const houseWidth = Math.sqrt(this.houseAreaSqM);
-    const houseDepth = Math.sqrt(this.houseAreaSqM);
-    
-    // Add small buffer around house for smoother transition
-    const buffer = 1;
-    
-    return (
-      worldPos.x >= this.housePositionX - houseWidth/2 - buffer &&
-      worldPos.x <= this.housePositionX + houseWidth/2 + buffer &&
-      worldPos.y >= this.housePositionZ - houseDepth/2 - buffer &&
-      worldPos.y <= this.housePositionZ + houseDepth/2 + buffer
-    );
-  }
-
-  // Method to check if a tile position is within the section footprint
-  private isWithinSectionFootprint(tileX: number, tileZ: number): boolean {
-    if (!this.showSection || !this.showHouse) return false;
-    
-    const worldPos = this.tileToPosition(tileX, tileZ);
-    const sectionWidth = Math.sqrt(this.validSectionArea);
-    const sectionDepth = Math.sqrt(this.validSectionArea);
-    
-    // Add small buffer around section for smoother transition
-    const buffer = 1;
-    
-    return (
-      worldPos.x >= this.housePositionX - sectionWidth/2 - buffer &&
-      worldPos.x <= this.housePositionX + sectionWidth/2 + buffer &&
-      worldPos.y >= this.housePositionZ - sectionDepth/2 - buffer &&
-      worldPos.y <= this.housePositionZ + sectionDepth/2 + buffer
-    );
-  }
-
-  // Method to check if a tile position is within the food production area
-  private isWithinFoodProductionArea(tileX: number, tileZ: number): boolean {
-    if (!this.showFoodArea || !this.showHouse) return false;
-    
-    const worldPos = this.tileToPosition(tileX, tileZ);
-    const foodAreaWidth = Math.sqrt(this.foodProductionArea);
-    const foodAreaDepth = Math.sqrt(this.foodProductionArea);
-    
-    // Position food area adjacent to section area
-    const sectionWidth = Math.sqrt(this.validSectionArea);
-    const foodAreaOffsetX = this.housePositionX + sectionWidth/2 + foodAreaWidth/2 + 5; // 5 meter gap
-    
-    // Add small buffer around food area for smoother transition
-    const buffer = 1;
-    
-    return (
-      worldPos.x >= foodAreaOffsetX - foodAreaWidth/2 - buffer &&
-      worldPos.x <= foodAreaOffsetX + foodAreaWidth/2 + buffer &&
-      worldPos.y >= this.housePositionZ - foodAreaDepth/2 - buffer &&
-      worldPos.y <= this.housePositionZ + foodAreaDepth/2 + buffer
-    );
-  }
-
-  // Method to check if a tile position is within the clothing production area
-  private isWithinClothingArea(tileX: number, tileZ: number): boolean {
-    if (!this.showClothingArea || !this.showHouse) return false;
-    
-    const worldPos = this.tileToPosition(tileX, tileZ);
-    const clothingAreaWidth = Math.sqrt(this.clothingProductionArea);
-    const clothingAreaDepth = Math.sqrt(this.clothingProductionArea);
-    
-    // Position clothing area adjacent to food area
-    const sectionWidth = Math.sqrt(this.validSectionArea);
-    const foodAreaWidth = Math.sqrt(this.foodProductionArea);
-    const clothingAreaOffsetX = this.housePositionX + sectionWidth/2 + foodAreaWidth + clothingAreaWidth/2 + 10; // 5m gap from section + food area + 5m gap
-    
-    // Add small buffer around clothing area for smoother transition
-    const buffer = 1;
-    
-    return (
-      worldPos.x >= clothingAreaOffsetX - clothingAreaWidth/2 - buffer &&
-      worldPos.x <= clothingAreaOffsetX + clothingAreaWidth/2 + buffer &&
-      worldPos.y >= this.housePositionZ - clothingAreaDepth/2 - buffer &&
-      worldPos.y <= this.housePositionZ + clothingAreaDepth/2 + buffer
-    );
-  }
-
-  // Get the level height for the house area
-  private getHouseLevelHeight(): number {
-    // Return elevated terrain height for house area (land tiles are at 1.5m)
-    return 1.5;
-  }
 
   private logPresentTerrainTypes(terrainCounts: Record<VisualTerrainType, number>): void {
     console.log('=== TERRAIN TYPES PRESENT ON CURRENT ISLAND ===');
