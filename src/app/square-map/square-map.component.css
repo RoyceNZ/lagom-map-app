@@ -7,14 +7,14 @@
 
 .filters {
   position: fixed;
-  top: calc(95px + 25vh); /* Moved down by one quarter of viewport height */
+  top: calc(95px + 5vh); /* Moved down by one quarter of viewport height */
   left: 20px;
   background: rgba(255, 255, 255, 0.95);
   padding: 15px;
   border-radius: 8px;
   box-shadow: 0 4px 12px rgba(0, 0, 0, 0.15);
   max-width: 300px;
-  max-height: calc(75vh - 120px); /* Adjusted for new lower position - 25vh less space available */
+  max-height: 75vh ;
   overflow-y: auto;
   z-index: 100;
   border: 1px solid rgba(0, 0, 0, 0.1);
@@ -68,30 +68,6 @@
   background: #303f9f;
 }
 
-.house-controls {
-  margin-top: 20px;
-  padding-top: 15px;
-  border-top: 2px solid #e0e0e0;
-}
-
-.house-controls h4 {
-  margin: 0 0 12px 0;
-  color: #1a237e;
-  font-size: 14px;
-  font-weight: 600;
-}
-
-.house-controls label[type="checkbox"] {
-  display: flex;
-  align-items: center;
-  gap: 8px;
-  margin-bottom: 8px;
-}
-
-.house-controls input[type="checkbox"] {
-  width: auto;
-  margin: 0;
-}
 
 /* Make the 3D renderer container take up the full available space */
 #rendererContainer {

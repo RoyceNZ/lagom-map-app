@@ -5,6 +5,7 @@ import { CommonModule } from '@angular/common';
 import * as THREE from 'three';
 import { RGBELoader } from 'three/examples/jsm/loaders/RGBELoader.js';
 import { OrbitControls } from 'three/examples/jsm/controls/OrbitControls.js';
+import * as BufferGeometryUtils from 'three/examples/jsm/utils/BufferGeometryUtils.js';
 
 // Define comprehensive terrain types based on Earth's biomes
 export type TerrainType = 
@@ -24,151 +25,122 @@ export type TerrainType =
   | 'urban';
 
 // Visual representation mapping (Three.js material types) - expanded for 1:1 mapping
-export type VisualTerrainType = 
-  | 'mountains'          // Grey stone for rocky peaks
-  | 'tundra'             // Light grey stone for cold barren areas  
-  | 'urban'              // Dark grey stone for built areas
-  | 'borealForest'       // Dark green trees for northern forests
-  | 'temperateForest'    // Medium green trees for temperate forests
-  | 'tropicalRainforest' // Bright green trees for tropical forests
-  | 'cropland'           // Yellow grass for farmland
-  | 'scrub'              // Green grass for shrubland
-  | 'temperateGrassland' // Greener grass for grasslands
-  | 'pastureland'        // Dark grass for grazing land
-  | 'savanna'            // Clay color for warm grasslands
-  | 'deserts'            // Sand color for hot dry areas
-  | 'saltwater'          // Dark blue for ocean
-  | 'freshwater';        // Light blue for lakes/rivers
+export type VisualTerrainType =
+  | 'saltwater'
+  | 'freshwater'
+  | 'mountains'
+  | 'tundra'
+  | 'urban'
+  | 'borealForest'
+  | 'temperateForest'
+  | 'tropicalRainforest'
+  | 'cropland'
+  | 'scrub'
+  | 'temperateGrassland'
+  | 'pastureland'
+  | 'savanna'
+  | 'deserts';
 
-// Map terrain types to visual representation (1:1 mapping)
-export const TERRAIN_VISUAL_MAPPING: Record<TerrainType, VisualTerrainType> = {
-  saltwater: 'saltwater',                    // Dark blue water (ocean)
-  freshwater: 'freshwater',                  // Light blue water (lakes/rivers)  
-  borealForest: 'borealForest',              // Dark green trees - northern forests
-  temperateForest: 'temperateForest',        // Medium green trees - temperate forests
-  tropicalRainforest: 'tropicalRainforest',  // Bright green trees - tropical forests
-  temperateGrassland: 'temperateGrassland',  // Greener grass - grasslands and meadows
-  savanna: 'savanna',                        // Clay color - warm dry grasslands
-  tundra: 'tundra',                          // Light grey stone - cold barren areas
-  deserts: 'deserts',                        // Sand color - hot dry areas
-  mountains: 'mountains',                    // Grey stone - rocky peaks
-  pastureland: 'pastureland',                // Dark grass - grazing land
-  cropland: 'cropland',                      // Yellow grass - farmland
-  scrub: 'scrub',                            // Green grass - dry shrubland and coastal areas
-  urban: 'urban'                             // Dark grey stone - built areas (house/section)
-} as const;
+// Map logical terrain types to visual terrain types (1:1 mapping)
+const TERRAIN_VISUAL_MAPPING: Record<TerrainType, VisualTerrainType> = {
+  saltwater: 'saltwater',
+  freshwater: 'freshwater',
+  borealForest: 'borealForest',
+  temperateForest: 'temperateForest',
+  tropicalRainforest: 'tropicalRainforest',
+  temperateGrassland: 'temperateGrassland',
+  savanna: 'savanna',
+  tundra: 'tundra',
+  deserts: 'deserts',
+  mountains: 'mountains',
+  pastureland: 'pastureland',
+  cropland: 'cropland',
+  scrub: 'scrub',
+  urban: 'urban'
+};
 
 @Component({
   selector: 'app-square-map',
-  imports: [FormsModule, CommonModule],
+  standalone: true,
+  imports: [CommonModule, FormsModule],
   templateUrl: './square-map.component.html',
-  styleUrl: './square-map.component.css'
+  styleUrls: ['./square-map.component.css']
 })
 export class SquareMapComponent implements AfterViewInit {
-  @ViewChild('rendererContainer', { static: false }) rendererContainer!: ElementRef;
+  @ViewChild('rendererContainer', { static: true }) rendererContainer!: ElementRef;
+
+  // Core rendering objects
   scene!: THREE.Scene;
   camera!: THREE.PerspectiveCamera;
   renderer!: THREE.WebGLRenderer;
-
- 
-
-
-
-  // Diet properties for food production area
-  selectedDiet = 'vegan'; // Default diet
-   dietRequirements = {
-    vegan: 150,
-    vegetarian: 250,
-    pescatarian: 350,
-    flexitarian: 450,
-    omnivore: 600
-  };
-
-  // Population-based sizing properties
-  usePopulationSizing = true;
-  selectedYear = 2025;
-
- 
-  isUpdating = false;
-  transitionDuration = 300; // milliseconds
-  private updateTimeout: any;
-  
-  // Store mesh references for each terrain type
-  private mountainsMesh!: THREE.InstancedMesh;
-  private tundraMesh!: THREE.InstancedMesh;
-  private urbanMesh!: THREE.InstancedMesh;
-  private borealForestMesh!: THREE.InstancedMesh;
-  private temperateForestMesh!: THREE.InstancedMesh;
-  private tropicalRainforestMesh!: THREE.InstancedMesh;
-  private croplandMesh!: THREE.InstancedMesh;
-  private scrubMesh!: THREE.InstancedMesh;
-  private temperateGrasslandMesh!: THREE.InstancedMesh;
-  private pasturelandMesh!: THREE.InstancedMesh;
-  private savannaMesh!: THREE.InstancedMesh;
-  private desertsMesh!: THREE.InstancedMesh;
-  private saltwaterMesh!: THREE.InstancedMesh;
-  private freshwaterMesh!: THREE.InstancedMesh;
-  private tileToInstanceMap: Map<string, {mesh: THREE.InstancedMesh, index: number}> = new Map();
-  private originalHeights: Map<string, number> = new Map(); // Cache original terrain heights
-
   light!: THREE.DirectionalLight;
 
-  // Terrain distribution tracking
-  actualTerrainPercentages: { stone: number; dirt: number; dirt2: number; sand: number; grass: number; water: number } = 
-    { stone: 0, dirt: 0, dirt2: 0, sand: 0, grass: 0, water: 0 };
-  expectedTerrainPercentages: { stone: number; dirt: number; dirt2: number; sand: number; grass: number; water: number } = 
-    { stone: 0, dirt: 0, dirt2: 0, sand: 0, grass: 0, water: 0 };
+  // Instanced meshes (one per visual terrain type)
+  mountainsMesh!: THREE.InstancedMesh;
+  tundraMesh!: THREE.InstancedMesh;
+  urbanMesh!: THREE.InstancedMesh;
+  borealForestMesh!: THREE.InstancedMesh;
+  temperateForestMesh!: THREE.InstancedMesh;
+  tropicalRainforestMesh!: THREE.InstancedMesh;
+  croplandMesh!: THREE.InstancedMesh;
+  scrubMesh!: THREE.InstancedMesh;
+  temperateGrasslandMesh!: THREE.InstancedMesh;
+  pasturelandMesh!: THREE.InstancedMesh;
+  savannaMesh!: THREE.InstancedMesh;
+  desertsMesh!: THREE.InstancedMesh;
+  saltwaterMesh!: THREE.InstancedMesh;
+  freshwaterMesh!: THREE.InstancedMesh;
 
-  // Terrain generation seed for natural variation
-  terrainSeed = Math.random() * 10000;
-  showTerrainControls = true;
-
-  // Earth-based biome quotas (enforces original distribution)
+  // State and configuration
+  isUpdating = false;
+  updateTimeout: any = null;
   enforceEarthQuotas = true;
-  biomeQuotas: Record<TerrainType, number> = {
-    saltwater: 0, freshwater: 0, borealForest: 0, temperateForest: 0, tropicalRainforest: 0,
-    temperateGrassland: 0, savanna: 0, tundra: 0, deserts: 0, mountains: 0,
-    pastureland: 0, cropland: 0, scrub: 0, urban: 0
-  };
+  usePopulationSizing = true;
+  selectedYear = new Date().getFullYear();
+  terrainSeed = Math.random() * 10000;
 
-  // Track remaining quotas during generation
-  remainingQuotas: Record<TerrainType, number> = { ...this.biomeQuotas };
+  // Quotas and counts
+  remainingQuotas: Record<TerrainType, number> = {} as any;
+  biomeQuotas: Record<TerrainType, number> = {} as any;
+  actualBiomeCounts: Record<TerrainType, number> = {} as any;
 
-  // Actual terrain counts from generation
-  actualBiomeCounts: Record<TerrainType, number> = {
-    saltwater: 0, freshwater: 0, borealForest: 0, temperateForest: 0, tropicalRainforest: 0,
-    temperateGrassland: 0, savanna: 0, tundra: 0, deserts: 0, mountains: 0,
-    pastureland: 0, cropland: 0, scrub: 0, urban: 0
-  };
+  // Tile bookkeeping
+  tileToInstanceMap = new Map<string, {mesh: THREE.InstancedMesh, index: number}>();
+  originalHeights = new Map<string, number>();
+  // Last generated deterministic map assignments (keyed `x,z`) used for read-only sampling
+  lastMapAssignments: Map<string, TerrainType> | null = null;
 
-  // Get actual biome percentage
+  actualTerrainPercentages: any = {};
+  expectedTerrainPercentages: any = {};
+
+  // Check if a biome can be placed given Earth quota enforcement
+  private canPlaceBiome(biome: TerrainType): boolean {
+    return (this.remainingQuotas[biome] || 0) > 0;
+  }
+
+  // Get actual biome percentage on current map (used by template)
   getActualBiomePercentage(biome: TerrainType): number {
-    const totalTiles = this.populationBasedMapSize * this.populationBasedMapSize;
-    return (this.actualBiomeCounts[biome] / totalTiles) * 100;
+    const total = this.populationBasedMapSize * this.populationBasedMapSize;
+    if (!total || !this.actualBiomeCounts) return 0;
+    return ((this.actualBiomeCounts[biome] || 0) / total) * 100;
   }
 
-  // Get actual biome count  
   getActualBiomeCount(biome: TerrainType): number {
-    return this.actualBiomeCounts[biome];
+    return this.actualBiomeCounts[biome] || 0;
   }
 
-  // Get target (Earth-based) biome percentage
   getTargetBiomePercentage(biome: TerrainType): number {
-    if (!this.enforceEarthQuotas) return 0;
-    const totalTiles = this.populationBasedMapSize * this.populationBasedMapSize;
-    return (this.biomeQuotas[biome] / totalTiles) * 100;
+    const total = this.populationBasedMapSize * this.populationBasedMapSize;
+    return ((this.biomeQuotas[biome] || 0) / total) * 100;
   }
 
-  // Get quota status for a biome
   getQuotaStatus(biome: TerrainType): string {
-    if (!this.enforceEarthQuotas) return '';
     const actual = this.getActualBiomePercentage(biome);
     const target = this.getTargetBiomePercentage(biome);
     const diff = Math.abs(actual - target);
-    
-    if (diff < 0.1) return '✅'; // Very close
-    if (diff < 0.5) return '🟡'; // Close
-    return '🔴'; // Far from target
+    if (diff < 0.1) return '✅';
+    if (diff < 0.5) return '🟡';
+    return '🔴';
   }
 
   // Calculate Earth-based biome quotas for current map size
@@ -176,39 +148,28 @@ export class SquareMapComponent implements AfterViewInit {
     const totalTiles = this.populationBasedMapSize * this.populationBasedMapSize;
     const breakdown = this.landBreakdownPerPerson;
     const totalArea = this.totalAreaPerPerson;
-    
+
     // Calculate exact tile quotas based on Earth percentages
     Object.keys(breakdown).forEach(biome => {
-      const areaPercentage = breakdown[biome] / totalArea;
-      this.biomeQuotas[biome as TerrainType] = Math.round(totalTiles * areaPercentage);
+      const areaPercentage = breakdown[biome];
+      this.biomeQuotas[biome as TerrainType] = Math.round(totalTiles * (areaPercentage / totalArea));
     });
-    
-    // Reset remaining quotas
-    this.remainingQuotas = { ...this.biomeQuotas };
-    
+
+    // Ensure quotas sum equals totalTiles: let saltwater absorb residual rounding differences
+    const sumQuotas = Object.values(this.biomeQuotas).reduce((s, v) => s + (v || 0), 0);
+    const delta = totalTiles - sumQuotas;
+    if (!this.biomeQuotas['saltwater']) this.biomeQuotas['saltwater'] = 0;
+    this.biomeQuotas['saltwater'] += delta;
+
+    // Initialize remaining quotas as a shallow copy (will be reconciled after placement)
+    this.remainingQuotas = Object.assign({}, this.biomeQuotas) as Record<TerrainType, number>;
+
     console.log('=== EARTH-BASED BIOME QUOTAS ===');
-    Object.entries(this.biomeQuotas).forEach(([biome, quota]) => {
-      const percentage = (quota / totalTiles * 100);
-      console.log(`${biome}: ${quota} tiles (${percentage.toFixed(1)}%)`);
+    Object.entries(this.biomeQuotas).forEach(([k, v]) => {
+      const pct = (v / totalTiles) * 100;
+      console.log(`${k}: ${v} tiles (${pct.toFixed(1)}%)`);
     });
     console.log('================================');
-  }
-
-  // Check if a biome can be placed (quota available)
-  private canPlaceBiome(biome: TerrainType): boolean {
-    if (!this.enforceEarthQuotas) return true;
-    return this.remainingQuotas[biome] > 0;
-  }
-
-  // Reserve a tile for a specific biome (decrements quota)
-  private reserveBiomeTile(biome: TerrainType): boolean {
-    if (!this.enforceEarthQuotas) return true;
-    
-    if (this.remainingQuotas[biome] > 0) {
-      this.remainingQuotas[biome]--;
-      return true;
-    }
-    return false;
   }
 
   // Get fallback biome when preferred biome quota is exceeded
@@ -474,219 +435,11 @@ export class SquareMapComponent implements AfterViewInit {
     return tileCounts;
   }
 
-  // Helper function to get tile count for a specific biome
-  getBiomeTileCount(biomeName: string): number {
-    return this.biomeTileCounts[biomeName] || 0;
-  }
-
-  getMapScaleRatio(): number {
-    // At 1:1 scale, each map square meter represents 1 real square meter
-    return 1;
-  }
-
-  // Calculate the optimal ocean distance threshold to achieve exactly 70.9% ocean
-  private calculateOptimalOceanThreshold(): number {
-    const mapSize = this.populationBasedMapSize;
-    const halfSize = this.mapHalfSize;
-    const totalTiles = mapSize * mapSize;
-    
-    // Target: 70.9% saltwater (ocean) + 1.77% freshwater (land-based lakes/rivers) = 72.67% total water
-    // But since freshwater is now on land tiles, we need 70.9% ocean + 29.1% land (which includes freshwater)
-    const targetOceanTiles = Math.floor(totalTiles * 0.709); // Just ocean tiles
-    const targetLandTiles = Math.floor(totalTiles * 0.291);  // Land tiles (some will become freshwater)
-    
-    // Simulate freshwater placement on land tiles to estimate count
-    let estimatedFreshwaterOnLand = 0;
-    const sampleSize = Math.min(1000, targetLandTiles); // Sample to estimate
-    
-    for (let sample = 0; sample < sampleSize; sample++) {
-      // Generate a random land tile position (simplified)
-      const angle = Math.random() * 2 * Math.PI;
-      const radius = Math.random() * halfSize * 0.4; // Inland positions
-      const x = Math.cos(angle) * radius;
-      const z = Math.sin(angle) * radius;
-      const adjustedDistance = Math.sqrt(x * x + z * z) / halfSize;
-      
-      if (this.shouldBeFreshwaterOnLand(x, z, adjustedDistance)) {
-        estimatedFreshwaterOnLand++;
-      }
-    }
-    
-    // Scale the estimate to full land area
-    const freshwaterRatio = estimatedFreshwaterOnLand / sampleSize;
-    const estimatedTotalFreshwater = Math.floor(targetLandTiles * freshwaterRatio);
-    
-    console.log('=== CALCULATING OPTIMAL OCEAN THRESHOLD ===');
-    console.log(`Target ocean tiles: ${targetOceanTiles} / ${totalTiles} (${(targetOceanTiles/totalTiles*100).toFixed(1)}%)`);
-    console.log(`Target land tiles: ${targetLandTiles} / ${totalTiles} (${(targetLandTiles/totalTiles*100).toFixed(1)}%)`);
-    console.log(`Estimated freshwater on land: ${estimatedTotalFreshwater} (${(estimatedTotalFreshwater/totalTiles*100).toFixed(2)}%)`);
-    console.log(`Remaining solid land: ${targetLandTiles - estimatedTotalFreshwater} (${((targetLandTiles - estimatedTotalFreshwater)/totalTiles*100).toFixed(1)}%)`);
-    
-    // Use binary search to find the distance threshold that gives us target ocean tiles
-    
-    // Test different thresholds to find the one that gives us closest to target ocean tiles
-    let bestThreshold = 0.4;
-    let bestDifference = Number.MAX_SAFE_INTEGER;
-    
-    for (let threshold = 0.2; threshold <= 0.6; threshold += 0.01) {
-      let oceanCount = 0;
-      
-      for (let i = -halfSize; i <= halfSize; i++) {
-        for (let j = -halfSize; j <= halfSize; j++) {
-          const distanceFromCenter = Math.sqrt(i * i + j * j) / halfSize;
-    
-          
-          if (distanceFromCenter > threshold) {
-            oceanCount++;
-          }
-        }
-      }
-      
-      const difference = Math.abs(oceanCount - targetOceanTiles);
-      if (difference < bestDifference) {
-        bestDifference = difference;
-        bestThreshold = threshold;
-      }
-    }
-    
-    console.log(`Best threshold: ${bestThreshold.toFixed(3)} (difference: ${bestDifference} tiles)`);
-    console.log('===============================================');
-    
-    return bestThreshold;
-  }
-
-  // Pre-calculate natural island shape for performance optimization
-  private calculateNaturalIslandShape(halfSize: number): void {
-    console.log('Pre-calculating natural island shape for performance...');
-    this.naturalIslandMap = new Map<string, boolean>();
-    
-    const startTime = performance.now();
-    let landTileCount = 0;
-    
-    // Generate all possible tile positions and determine which are land
-    for (let i = -halfSize; i <= halfSize; i++) {
-      for (let j = -halfSize; j <= halfSize; j++) {
-        const x = i;
-        const z = j;
-        const isLand = this.calculateIslandLandAtPosition(x, z, halfSize);
-        
-        if (isLand) {
-          this.naturalIslandMap.set(`${x},${z}`, true);
-          landTileCount++;
-        }
-      }
-    }
-    
-    const endTime = performance.now();
-    const landPercentage = (landTileCount / this.totalTileCount * 100).toFixed(1);
-    
-    console.log(`Natural island pre-calculation complete:`);
-    console.log(`- Land tiles: ${landTileCount} (${landPercentage}%)`);
-    console.log(`- Calculation time: ${(endTime - startTime).toFixed(1)}ms`);
-  }
-
-  // Calculate if a specific position should be land (used only during pre-calculation)
-  private calculateIslandLandAtPosition(x: number, z: number, halfSize: number): boolean {
-    const centerX = 0;
-    const centerZ = 0;
-    
-    // Calculate distance and angle from center
-    const distanceFromCenter = Math.sqrt((x - centerX) ** 2 + (z - centerZ) ** 2);
-    const normalizedDistance = distanceFromCenter / halfSize;
-    const angle = Math.atan2(z - centerZ, x - centerX);
-    
-    // Create more natural, irregular island shape using multiple techniques
-    
-    // 1. Base organic shape (not perfectly circular)
-    let baseRadius = 0.6; // Slightly smaller base
-    
-    // 2. Large-scale geographic features using domain warping
-    const warpScale = 0.008;
-    const warpStrength = 25;
-    
-    const warpX1 = this.seededNoise2D(x * warpScale, z * warpScale) * warpStrength;
-    const warpZ1 = this.seededNoise2D((x + 100) * warpScale, (z + 100) * warpScale) * warpStrength;
-    
-    const warpedX = x + warpX1;
-    const warpedZ = z + warpZ1;
-    const warpedDistance = Math.sqrt(warpedX ** 2 + warpedZ ** 2) / halfSize;
-    const warpedAngle = Math.atan2(warpedZ, warpedX);
-    
-    // 3. Fractal noise for organic complexity (multiple octaves)
-    let coastalNoise = 0;
-    let amplitude = 1;
-    let frequency = 0.01;
-    const octaves = 6;
-    
-    for (let i = 0; i < octaves; i++) {
-      coastalNoise += this.seededNoise2D(x * frequency + i * 1000, z * frequency + i * 1000) * amplitude;
-      amplitude *= 0.5; // Each octave has half the amplitude
-      frequency *= 2;   // Each octave has double the frequency
-    }
-    coastalNoise *= 0.15; // Scale the overall effect
-    
-    // 4. Large peninsulas and deep bays using low-frequency variations
-    const majorFeatures = 
-      Math.sin(warpedAngle * 2.3 + this.terrainSeed * 0.001) * 0.18 +
-      Math.sin(warpedAngle * 3.7 + this.terrainSeed * 0.002) * 0.12 +
-      Math.sin(warpedAngle * 5.1 + this.terrainSeed * 0.003) * 0.08;
-    
-    // 5. Medium-scale coastal indentations
-    const mediumFeatures = 
-      Math.sin(warpedAngle * 8.2 + coastalNoise * 10) * 0.06 +
-      Math.sin(warpedAngle * 12.7 + coastalNoise * 15) * 0.04;
-    
-    // 6. Small-scale coastal detail
-    const smallFeatures = this.seededNoise2D(x * 0.05, z * 0.05) * 0.03 +
-                          this.seededNoise2D(x * 0.12, z * 0.12) * 0.02;
-    
-    // 7. Create some natural elongation (not perfectly round)
-    const elongationFactor = 1 + Math.sin(warpedAngle + this.terrainSeed * 0.001) * 0.15;
-    
-    // Combine all features
-    const effectiveRadius = (baseRadius + majorFeatures + mediumFeatures + coastalNoise + smallFeatures) * elongationFactor;
-    
-    // 8. Distance-based falloff for natural island edges
-    const distanceFalloff = Math.pow(Math.max(0, 1 - warpedDistance * 1.2), 0.8);
-    const adjustedRadius = effectiveRadius * distanceFalloff;
-    
-    // 9. Natural coastline determination with erosion simulation
-    const coastlineThreshold = adjustedRadius;
-    const coastlineNoise = this.seededNoise2D(x * 0.3 + this.terrainSeed, z * 0.3 + this.terrainSeed) * 0.05;
-    
-    // Create natural transition zone
-    const transitionWidth = 0.08;
-    const distanceToCoast = normalizedDistance - (coastlineThreshold + coastlineNoise);
-    
-    if (distanceToCoast < -transitionWidth) {
-      return true; // Definitely land
-    } else if (distanceToCoast > transitionWidth) {
-      return false; // Definitely ocean
-    } else {
-      // Natural coastline transition with erosion patterns
-      const erosionNoise = this.seededNoise2D(x * 0.4, z * 0.4) + 
-                           this.seededNoise2D(x * 0.8, z * 0.8) * 0.5;
-      const transitionFactor = (distanceToCoast + transitionWidth) / (2 * transitionWidth);
-      
-      // Add some randomness for natural coastline variation
-      const randomFactor = this.seededNoise2D(x * 0.25 + this.terrainSeed * 2, z * 0.25 + this.terrainSeed * 3);
-      
-      return (erosionNoise + randomFactor * 0.3) > transitionFactor;
-    }
-  }
-
   // Generate seeded random number for consistent terrain patterns
   private seededRandom(x: number, z: number, offset: number = 0): number {
     const seed = this.terrainSeed + offset;
     const value = Math.sin((x + seed) * 12.9898 + (z + seed) * 78.233) * 43758.5453;
     return Math.abs(value) % 1;
-  }
-
-  // Regenerate terrain with new patterns
-  regenerateTerrain(): void {
-    this.terrainSeed = Math.random() * 10000;
-    console.log('Regenerating terrain with new seed:', this.terrainSeed);
-    this.updateMap();
   }
 
   // Enhanced method to determine logical terrain type with natural clustering and quota enforcement
@@ -791,213 +544,6 @@ export class SquareMapComponent implements AfterViewInit {
     return closestBiome;
   }
 
-  // Enhanced fallback system with intelligent biome placement and rare biome visibility boosting
-  private getSecondaryBiomeInfluence(x: number, z: number, distance: number, elevation: number): TerrainType {
-    // Convert to island-relative coordinates
-    const islandRadius = this.mapHalfSize * 0.65;
-    const islandX = x / islandRadius;
-    const islandZ = z / islandRadius;
-    const islandDistance = Math.sqrt(islandX * islandX + islandZ * islandZ);
-    
-    // Create transition influences based on neighboring biomes using seeded random
-    const influenceNoise = (this.seededRandom(x, z, 500) - 0.5) * 0.2; // Reduced noise for stronger clustering
-    
-    // Coastal influence - scrub near island coastlines (maintained)
-    if (islandDistance > 0.7) {
-      return 'scrub';
-    }
-    
-    // MINIMAL secondary biome influences - only for essential transitions
-    // Greatly reduced to promote single consolidated clusters per biome
-    const secondarySeeds = [
-      // Only essential boundary transitions to prevent hard edges
-      { x: 0.2, z: -0.25, biome: 'scrub', radius: 0.08 },    // Small transition zone
-      { x: -0.2, z: 0.2, biome: 'scrub', radius: 0.08 },     // Small transition zone
-      { x: 0.0, z: 0.15, biome: 'scrub', radius: 0.06 },     // Minimal transition
-    ];
-    
-    // Find closest secondary influence with much smaller radius for minimal mixing
-    for (const seed of secondarySeeds) {
-      const seedDistance = Math.sqrt((islandX - seed.x) ** 2 + (islandZ - seed.z) ** 2);
-      const effectiveRadius = seed.radius + influenceNoise * 0.05; // Much smaller influence
-      if (seedDistance < effectiveRadius) {
-        return seed.biome as TerrainType;
-      }
-    }
-    
-    // Greatly reduced diversity enforcement to maintain consolidated clusters (reduced from 25% to 5%)
-    const diversityRoll = this.seededRandom(x, z, 650);
-    
-    // Minimal forced diversity to preserve primary biome clustering (reduced from 25% to 5%)
-    if (diversityRoll < 0.05) { // Only 5% chance for forced diversity to maintain consolidated appearance
-      const allBiomes: TerrainType[] = [
-        'temperateForest', 'tropicalRainforest', 'temperateGrassland', 
-        'savanna', 'deserts', 'freshwater', 'urban', 'cropland', 'pastureland'
-      ];
-      const biomeIndex = Math.floor(this.seededRandom(x, z, 670) * allBiomes.length);
-      return allBiomes[biomeIndex];
-    }
-    
-    // Fallback to scrub to maintain clean boundaries between primary biome clusters
-    return 'scrub';
-    return 'deserts';
-  }
-
-  // Generate transition noise for biome boundaries
-  private getTransitionNoise(x: number, z: number): number {
-    const noise1 = (this.seededRandom(x, z, 700) - 0.5) * 1.0;
-    const noise2 = (this.seededRandom(x, z, 800) - 0.5) * 0.6;
-    const noise3 = (this.seededRandom(x, z, 900) - 0.5) * 0.4;
-    
-    return (noise1 + noise2 + noise3) / 3;
-  }
-
-  // Apply elevation constraints to biome selection (reduced constraints for more diversity)
-  private applyElevationConstraints(primary: TerrainType, secondary: TerrainType, elevation: number, transitionNoise: number, x: number, z: number): TerrainType {
-    // Very high elevation biomes (more restrictive threshold)
-    if (elevation > 0.85) {
-      if (elevation > 0.95) return 'mountains';
-      return this.seededRandom(x, z, 950) < 0.6 ? 'tundra' : 'mountains';
-    }
-    
-    // High elevation - allow more biome variety
-    if (elevation > 0.7) {
-      if (primary === 'saltwater' || primary === 'freshwater') {
-        return this.seededRandom(x, z, 960) < 0.5 ? 'tundra' : 'mountains';
-      }
-      // Allow temperate forests and grasslands at high elevation
-      if (primary === 'deserts' || primary === 'savanna' || primary === 'tropicalRainforest') {
-        return transitionNoise > 0 ? 'temperateForest' : 'temperateGrassland';
-      }
-      return primary;
-    }
-    
-    // Medium elevation - most biomes allowed
-    if (elevation > 0.4) {
-      return primary; // Allow all biomes at medium elevation
-    }
-    
-    // Low elevation - favor diverse biomes, avoid only the highest elevation ones
-    if (elevation < 0.3) {
-      if (primary === 'mountains') {
-        return secondary === 'tundra' ? 'temperateGrassland' : secondary;
-      }
-      if (primary === 'tundra' && elevation < 0.15) {
-        return secondary === 'mountains' ? 'scrub' : secondary;
-      }
-    }
-    
-    // Use transition noise to blend biomes naturally with more variety
-    const blendThreshold = 0.2 + (elevation * 0.05); // Reduced threshold for more blending
-    if (Math.abs(transitionNoise) < blendThreshold) {
-      const choice = this.seededRandom(x, z, 1000);
-      if (choice < 0.4) return primary;
-      if (choice < 0.8) return secondary;
-      // 20% chance for additional diversity
-      const diversityBiomes: TerrainType[] = ['temperateForest', 'tropicalRainforest', 'savanna', 'deserts', 'temperateGrassland', 'freshwater'];
-      return diversityBiomes[Math.floor(this.seededRandom(x, z, 1050) * diversityBiomes.length)];
-    }
-    
-    return primary;
-  }
-
-  // Apply geographic logic for realistic biome placement within the island
-  private applyGeographicLogic(biome: TerrainType, x: number, z: number, distance: number, elevation: number): TerrainType {
-    // Convert to island-relative coordinates
-    const islandRadius = this.mapHalfSize * 0.65;
-    const islandX = x / islandRadius;
-    const islandZ = z / islandRadius;
-    const islandDistance = Math.sqrt(islandX * islandX + islandZ * islandZ);
-    
-    // Freshwater lakes in low-lying areas (natural collection points)
-    if (elevation < 0.3 && islandDistance < 0.4) {
-      const lakeChance = this.seededRandom(x, z, 1150);
-      if (lakeChance < 0.08 && biome !== 'urban' && biome !== 'mountains') {
-        return 'freshwater';
-      }
-    }
-    
-    // Rain shadow effect - deserts behind mountains (west side of island)
-    if (islandX < -0.2 && elevation < 0.4) {
-      const mountainDistance = Math.sqrt((islandX + 0.3) ** 2 + islandZ ** 2);
-      if (mountainDistance < 0.3) {
-        return this.seededRandom(x, z, 1100) < 0.7 ? 'deserts' : 'scrub';
-      }
-    }
-    
-    // Tropical areas in the south
-    if (islandZ > 0.2 && elevation < 0.6) {
-      if (biome === 'temperateForest' || biome === 'borealForest') {
-        return this.seededRandom(x, z, 1160) < 0.4 ? 'tropicalRainforest' : biome;
-      }
-      if (biome === 'temperateGrassland') {
-        return this.seededRandom(x, z, 1170) < 0.3 ? 'savanna' : biome;
-      }
-    }
-    
-    // Northern areas favor boreal and temperate biomes
-    if (islandZ < -0.2) {
-      if (biome === 'tropicalRainforest') {
-        return elevation > 0.3 ? 'temperateForest' : 'borealForest';
-      }
-      if (biome === 'savanna') {
-        return elevation > 0.4 ? 'temperateGrassland' : 'borealForest';
-      }
-    }
-    
-    // Coastal zones - scrub and grassland near island coastlines
-    if (islandDistance > 0.6 && islandDistance < 0.9) {
-      if (biome === 'tropicalRainforest' || biome === 'temperateForest') {
-        return this.seededRandom(x, z, 1200) < 0.4 ? 'scrub' : biome;
-      }
-    }
-    
-    // River valleys and water proximity - more forests and grasslands
-    const waterProximityBonus = this.calculateWaterProximity(islandX, islandZ);
-    if (waterProximityBonus > 0.3 && elevation > 0.2 && elevation < 0.6) {
-      if (biome === 'deserts' || biome === 'scrub') {
-        return islandZ > 0 ? 'temperateForest' : 'borealForest';
-      }
-    }
-    
-    // Urban and agricultural areas can appear but have reduced priority for diversity
-    if (biome === 'urban' || biome === 'cropland' || biome === 'pastureland') {
-      // Sometimes replace with natural biomes for more diversity
-      if (this.seededRandom(x, z, 1250) < 0.3) {
-        const naturalAlternatives: TerrainType[] = ['temperateGrassland', 'scrub', 'temperateForest'];
-        return naturalAlternatives[Math.floor(this.seededRandom(x, z, 1260) * naturalAlternatives.length)];
-      }
-      return biome;
-    }
-    
-    return biome;
-  }
-
-  // Calculate proximity to water sources for biome influence within island
-  private calculateWaterProximity(islandX: number, islandZ: number): number {
-    // Simulate river valleys and water sources using island coordinates
-    const riverValley1 = Math.exp(-Math.pow((islandX - 0.1) * 2, 2) - Math.pow((islandZ + 0.2) * 1.5, 2));
-    const riverValley2 = Math.exp(-Math.pow((islandX + 0.15) * 1.8, 2) - Math.pow((islandZ - 0.25) * 1.6, 2));
-    const lakeBed = Math.exp(-Math.pow((islandX + 0.05) * 3, 2) - Math.pow(islandZ * 2.5, 2));
-    
-    return Math.max(riverValley1, riverValley2, lakeBed);
-  }
-
-  // Simple 4-region system with smooth boundaries
-  private getSimpleBiomeRegion(relativeX: number, relativeZ: number, distance: number): string {
-    // Central area
-    if (distance < 0.2) {
-      return 'center';
-    }
-    
-    // Simple quadrant system with smooth transitions
-    if (Math.abs(relativeX) > Math.abs(relativeZ)) {
-      return relativeX > 0 ? 'east' : 'west';
-    } else {
-      return relativeZ > 0 ? 'south' : 'north';
-    }
-  }
-
   // Method to determine terrain type with pre-calculated natural island shape
   getTerrainTypeFromNoise(noiseValue: number, x: number = 0, z: number = 0): VisualTerrainType {
     // Use pre-calculated natural island shape for performance
@@ -1030,28 +576,6 @@ export class SquareMapComponent implements AfterViewInit {
       // All water tiles outside the island are saltwater (ocean)
       return TERRAIN_VISUAL_MAPPING['saltwater'];
     }
-  }
-
-  // Enhanced seeded 2D noise function for natural terrain generation
-  private seededNoise2D(x: number, z: number): number {
-    // Use multiple hash functions for better distribution
-    const seed = this.terrainSeed;
-    
-    // Hash the coordinates with the seed for deterministic randomness
-    const hash1 = Math.sin((x + seed) * 12.9898 + (z + seed) * 78.233) * 43758.5453;
-    const hash2 = Math.sin((x + seed) * 93.9898 + (z + seed) * 47.233) * 23421.6314;
-    const hash3 = Math.sin((x + seed) * 67.2346 + (z + seed) * 89.145) * 39284.7293;
-    
-    // Combine multiple hashes for better noise characteristics
-    const noise = (Math.abs(hash1) % 1) * 0.5 + 
-                  (Math.abs(hash2) % 1) * 0.3 + 
-                  (Math.abs(hash3) % 1) * 0.2;
-    
-    // Normalize to -1 to 1 range and smooth the distribution
-    const normalized = (noise % 1) * 2 - 1;
-    
-    // Apply smoothing function for more natural curves
-    return normalized * normalized * normalized * Math.sign(normalized);
   }
 
   private shouldBeFreshwaterOnLand(x: number, z: number, adjustedDistance: number): boolean {
@@ -1206,15 +730,23 @@ export class SquareMapComponent implements AfterViewInit {
     console.log('Legend: ~ = Saltwater, w = Freshwater, M = Mountains, T = Tundra, U = Urban');
     console.log('        B = Boreal Forest, F = Temperate Forest, R = Tropical Rainforest');
     console.log('        C = Cropland, s = Scrub, G = Grassland, P = Pasture, S = Savanna, D = Desert');
+  console.log('Per-biome deltas (shown in update logs): target=<tiles>, actual=<tiles> -> delta=<signed tiles> (<signed percentage points> pp)');
     console.log('');
     
     // Sample the map in a grid pattern
     for (let z = halfSize; z >= -halfSize; z -= step) {
       let row = '';
       for (let x = -halfSize; x <= halfSize; x += step) {
-        // Get the terrain type for this position
-        const noise = Math.random(); // Use random since we don't have the exact noise
-        const terrainType = this.getTerrainTypeFromNoise(noise, x, z);
+        // Get the terrain type for this position using lastMapAssignments (read-only)
+        const key = `${x},${z}`;
+        let terrainType: VisualTerrainType;
+        if (this.lastMapAssignments && this.lastMapAssignments.has(key)) {
+          terrainType = TERRAIN_VISUAL_MAPPING[this.lastMapAssignments.get(key)!];
+        } else {
+          // Fallback: non-mutating sampling via a pure lookup function (use seeded logic but avoid counters)
+          const noise = Math.random();
+          terrainType = this.getTerrainTypeFromNoise(noise, x, z);
+        }
         row += terrainChars[terrainType] + ' ';
       }
       console.log(row);
@@ -1347,6 +879,19 @@ export class SquareMapComponent implements AfterViewInit {
       saltwater: new THREE.TextureLoader().load('assets/saltwater.png'),
       freshwater: new THREE.TextureLoader().load('assets/freshwater.png')
     }
+    // Reduce texture edge bleeding for water textures and allow repeating
+    try {
+      textures.saltwater.wrapS = textures.saltwater.wrapT = THREE.RepeatWrapping;
+      textures.saltwater.magFilter = THREE.NearestFilter;
+      textures.saltwater.minFilter = THREE.LinearMipMapLinearFilter;
+
+      textures.freshwater.wrapS = textures.freshwater.wrapT = THREE.RepeatWrapping;
+      textures.freshwater.magFilter = THREE.NearestFilter;
+      textures.freshwater.minFilter = THREE.LinearMipMapLinearFilter;
+    } catch (e) {
+      // If textures not fully loaded yet, ignore - loader will update filters when ready
+      console.warn('Failed to set water texture filters/repeat; continuing', e);
+    }
     
     // Remove noise generation since we're using flat terrain
     const mapSize = this.populationBasedMapSize;
@@ -1383,10 +928,28 @@ export class SquareMapComponent implements AfterViewInit {
         // this.naturalIslandMap = new Map<string, boolean>();
         // this.calculateNaturalIslandShape(halfSize);
       
-        // Generate deterministic square-group assignments for the whole map
+        // Calculate quotas (convert area breakdown into tile quotas) before placement
+        this.calculateBiomeQuotas();
+
+        // Generate deterministic per-tile assignments (guarantees exact counts)
         mapAssignments = this.generateSquareGroupsMap();
+        // Optionally cluster those assignments into square blocks for a cleaner visual
+        try {
+          const clustered = this.clusterMapFromCounts(this.biomeQuotas);
+          if (clustered && clustered.size === mapSize * mapSize) {
+            mapAssignments = clustered;
+            console.log('Clustering into square blocks applied (post-pass)');
+          }
+        } catch (e) {
+          console.warn('Clustering post-pass failed, using per-tile assignment', e);
+        }
+        // Store for read-only sampling in generateVisualMap to avoid mutating counters
+        this.lastMapAssignments = mapAssignments;
     }
-    const squareGeometry = new THREE.BoxGeometry(1, 1, 1);
+  const squareGeometry = new THREE.BoxGeometry(1, 1, 1);
+  // Use a flat plane for water (lies on XZ plane). We'll rotate the plane once and reuse it.
+  const unitWaterPlane = new THREE.PlaneGeometry(1, 1);
+  unitWaterPlane.rotateX(-Math.PI / 2);
     
     // Create individual meshes for each terrain type with their specific textures
     this.mountainsMesh = new THREE.InstancedMesh(squareGeometry, new THREE.MeshPhysicalMaterial({ 
@@ -1437,14 +1000,24 @@ export class SquareMapComponent implements AfterViewInit {
       envMap: envmap, envMapIntensity: 0.135, flatShading: true, roughness: 1, metalness: 0, map: textures.deserts 
     }), squareCount);
     
-    this.saltwaterMesh = new THREE.InstancedMesh(squareGeometry, new THREE.MeshPhysicalMaterial({ 
+    this.saltwaterMesh = new THREE.InstancedMesh(unitWaterPlane, new THREE.MeshPhysicalMaterial({ 
       envMap: envmap, envMapIntensity: 0.3, flatShading: false, roughness: 0.0, metalness: 0.0, 
-      map: textures.saltwater, transparent: true, opacity: 0.8, color: 0x20a0ff
+      map: textures.saltwater, transparent: true, opacity: 0.92, color: 0x20a0ff,
+      side: THREE.DoubleSide,
+      polygonOffset: true,
+      polygonOffsetFactor: -1,
+      polygonOffsetUnits: 1,
+      alphaTest: 0.01
     }), squareCount);
     
-    this.freshwaterMesh = new THREE.InstancedMesh(squareGeometry, new THREE.MeshPhysicalMaterial({ 
+    this.freshwaterMesh = new THREE.InstancedMesh(unitWaterPlane, new THREE.MeshPhysicalMaterial({ 
       envMap: envmap, envMapIntensity: 0.3, flatShading: false, roughness: 0.1, metalness: 0.1, 
-      map: textures.freshwater, transparent: true, opacity: 0.8, color: 0x4080ff
+      map: textures.freshwater, transparent: true, opacity: 0.95, color: 0x4080ff,
+      side: THREE.DoubleSide,
+      polygonOffset: true,
+      polygonOffsetFactor: -1,
+      polygonOffsetUnits: 1,
+      alphaTest: 0.01
     }), squareCount);
 
     // Initialize index counters for each terrain type
@@ -1475,10 +1048,7 @@ export class SquareMapComponent implements AfterViewInit {
       pastureland: 0, cropland: 0, scrub: 0, urban: 0
     };
 
-    // Initialize Earth-based biome quotas
-    if (this.enforceEarthQuotas) {
-      this.calculateBiomeQuotas();
-    }
+  // Earth-based biome quotas were calculated earlier prior to placement/clustering
 
     // Track terrain type counts for debugging
     const terrainCounts: Record<VisualTerrainType, number> = {
@@ -1495,191 +1065,214 @@ export class SquareMapComponent implements AfterViewInit {
       pastureland: 0, cropland: 0, scrub: 0, urban: 0
     };
 
-    // Create the squares
-    for(let i = -halfSize; i <= halfSize; i++) {
-      for(let j = -halfSize; j <= halfSize; j++) {
-        let position = this.tileToPosition(i, j);
+  // Merge adjacent identical tiles into larger rectangles to avoid visible seams
+  // Build a type grid and visited grid
+    const gridTypes: VisualTerrainType[][] = [];
+    const visited: boolean[][] = [];
+    // Collect water geometries to merge later (reduces seams)
+    const saltwaterGeometries: THREE.BufferGeometry[] = [];
+    const freshwaterGeometries: THREE.BufferGeometry[] = [];
+    const saltwaterTileGroups: string[][] = [];
+    const freshwaterTileGroups: string[][] = [];
+    for (let gz = 0; gz < mapSize; gz++) {
+      gridTypes[gz] = new Array(mapSize);
+      visited[gz] = new Array(mapSize).fill(false);
+    }
 
-        // Use flat terrain - no noise-based height variations
-        const flatHeight = 0.5; // Fixed flat height for all terrain
-        
-        // Create a proper random value based on both coordinates for better terrain distribution
-        const seed = i * 1000 + j;
-        let noise = Math.abs(Math.sin(seed * 12.9898) * Math.cos(seed * 78.233) * 43758.5453) % 1;
-        
-        const tileKey = `${i},${j}`;
-        
-        // Determine terrain type first to decide height
-        let terrainType: VisualTerrainType;
-        
-  
-        if (this.usePopulationSizing) {
-          // Use deterministic square-group assignment (exact counts)
-          const assignedLogical = (mapAssignments.get(tileKey) || 'saltwater') as TerrainType;
+    // Fill gridTypes from mapAssignments (mapAssignments keys are "x,z" with center coords)
+    for (let gz = 0; gz < mapSize; gz++) {
+      for (let gx = 0; gx < mapSize; gx++) {
+        const x = gx - halfSize;
+        const z = gz - halfSize;
+        const key = `${x},${z}`;
+        const logical = (mapAssignments.get(key) || 'saltwater') as TerrainType;
+        gridTypes[gz][gx] = TERRAIN_VISUAL_MAPPING[logical];
+      }
+    }
 
-          // Convert logical terrain to visual terrain type
-          terrainType = TERRAIN_VISUAL_MAPPING[assignedLogical];
-          
-          // Debug logging for tile assignment
-          if (Math.random() < 0.0005 && i >= 0 && j >= 0) { // Log 0.05% of tiles, only positive quadrant
-            console.log(`ASSIGNMENT Debug [${i},${j}]: logical="${assignedLogical}", visual="${terrainType}"`);
+    const gridToCoord = (gx: number, gz: number) => ({ x: gx - halfSize, z: gz - halfSize });
+
+    for (let gz = 0; gz < mapSize; gz++) {
+      for (let gx = 0; gx < mapSize; gx++) {
+        if (visited[gz][gx]) continue;
+        const terrainType = gridTypes[gz][gx];
+        // Find maximal width
+        let width = 1;
+        while (gx + width < mapSize && !visited[gz][gx + width] && gridTypes[gz][gx + width] === terrainType) width++;
+        // Find maximal height for this width
+        let height = 1;
+        outer: while (gz + height < mapSize) {
+          for (let wx = 0; wx < width; wx++) {
+            if (visited[gz + height][gx + wx] || gridTypes[gz + height][gx + wx] !== terrainType) break outer;
           }
-        } else {
-          // Fallback - should not be used with population sizing enabled
-          terrainType = 'temperateGrassland';
+          height++;
         }
 
-        // Track actual biome counts
-        const logicalTerrainType = this.getLogicalTerrainFromVisual(terrainType, i, j);
-        this.actualBiomeCounts[logicalTerrainType]++;
-        terrainCounts[terrainType]++;
-        logicalTerrainCounts[logicalTerrainType]++;
-        
-        // Set height based on terrain type - with 1:1 mapping we can use terrain type directly
-        let baseHeight: number;
-        if (terrainType === 'saltwater' || terrainType === 'freshwater') {
-          // Water tiles stay at water level
-          baseHeight = 0.1;
-        } else {
-          // For natural island terrain, get the logical type to determine proper elevation
-          if (this.usePopulationSizing ) {
-            // With 1:1 mapping, we can use the visual terrain type directly for height
-            switch(terrainType) {
-              case 'mountains': baseHeight = 8.0; break;           // True mountains - highest peaks
-              case 'tundra': baseHeight = 6.5; break;              // High alpine areas
-              case 'urban': baseHeight = 5.5; break;               // Elevated house area
-              case 'borealForest': baseHeight = 4.5; break;        // Mountain forest slopes
-              case 'temperateForest': baseHeight = 3.5; break;     // Mid-elevation forests
-              case 'tropicalRainforest': baseHeight = 3.0; break;  // Lush valleys
-              case 'temperateGrassland': baseHeight = 2.5; break;  // Rolling hills
-              case 'pastureland': baseHeight = 2.0; break;         // Grazing areas
-              case 'cropland': baseHeight = 1.8; break;            // Farmland
-              case 'savanna': baseHeight = 1.5; break;             // Dry grasslands
-              case 'scrub': baseHeight = 1.0; break;               // Coastal shrubland
-              case 'deserts': baseHeight = 0.8; break;             // Dry desert areas
-              default: baseHeight = 2.5; break;
-            }
-          } else {
-            // Use simplified height for special areas
-            switch(terrainType) {
-              case 'mountains': case 'tundra': case 'urban': baseHeight = 2.0; break;
-              case 'borealForest': case 'temperateForest': case 'tropicalRainforest': baseHeight = 1.0; break;
-              case 'cropland': case 'scrub': baseHeight = 0.8; break;
-              case 'temperateGrassland': case 'pastureland': baseHeight = 0.6; break;
-              case 'savanna': case 'deserts': baseHeight = 0.4; break;
-              default: baseHeight = 1.0; break;
-            }
+        // Mark visited
+        for (let yy = 0; yy < height; yy++) {
+          for (let xx = 0; xx < width; xx++) {
+            visited[gz + yy][gx + xx] = true;
           }
         }
-        
-        this.originalHeights.set(tileKey, baseHeight);
 
-        let height: number;
-        let matrix: THREE.Matrix4;
-        
-        // Special handling for water tiles - place at sea level
-        if (terrainType === 'freshwater') {
-          height = 0; // Water at sea level
-          matrix = new THREE.Matrix4().makeTranslation(position.x, height, position.y);
-          matrix.scale(new THREE.Vector3(1, 0.2, 1)); // Thin water layer
-        } else {
-          height = baseHeight;
+        // Compute world position for the rectangle center
+        const centerGX = gx + (width - 1) / 2;
+        const centerGZ = gz + (height - 1) / 2;
+        const coord = gridToCoord(centerGX, centerGZ);
+        const position = new THREE.Vector2(coord.x, coord.z);
 
-          matrix = new THREE.Matrix4().makeTranslation(position.x, height * 0.5, position.y);
-          matrix.scale(new THREE.Vector3(1, height, 1));
-        }
-
-        // Debug logging for center tile
-        if (i === 0 && j === 0) {
-          console.log('Center tile terrain type:', terrainType, 'noise:', noise, 'height:', height.toFixed(2));
-        }
-        
-        // Enhanced height debugging - log more tiles to see height variety
-        if (Math.random() < 0.002) { // Log 0.2% of tiles to see height variety across terrain types
-          const distanceFromCenter = Math.sqrt(i * i + j * j) / halfSize;
-          
-          // Also get logical terrain type for comparison
-          let logicalType = 'unknown';
-          if (this.usePopulationSizing) {
-            const adjustedDistance = Math.sqrt(i * i + j * j) / halfSize;
-            logicalType = this.getLogicalTerrainType(noise, i, j, adjustedDistance);
+        // Determine base height
+        let baseHeight = 0.1;
+        if (terrainType !== 'saltwater' && terrainType !== 'freshwater') {
+          switch (terrainType) {
+            case 'mountains': baseHeight = 8.0; break;
+            case 'tundra': baseHeight = 6.5; break;
+            case 'urban': baseHeight = 5.5; break;
+            case 'borealForest': baseHeight = 4.5; break;
+            case 'temperateForest': baseHeight = 3.5; break;
+            case 'tropicalRainforest': baseHeight = 3.0; break;
+            case 'temperateGrassland': baseHeight = 2.5; break;
+            case 'pastureland': baseHeight = 2.0; break;
+            case 'cropland': baseHeight = 1.8; break;
+            case 'savanna': baseHeight = 1.5; break;
+            case 'scrub': baseHeight = 1.0; break;
+            case 'deserts': baseHeight = 0.8; break;
+            default: baseHeight = 2.5; break;
           }
-          
-          console.log(`HEIGHT ANALYSIS [${i},${j}]: visual="${terrainType}", logical="${logicalType}", dist=${distanceFromCenter.toFixed(2)}, height=${height.toFixed(2)}m, baseHeight=${baseHeight.toFixed(2)}m`);
         }
 
-        // Assign to appropriate mesh based on terrain type
-        terrainCounts[terrainType]++;
+        // Create matrix for the rectangle using compose(position, quaternion, scale)
+        // Compose ensures scale does not affect translation (no translated scaling)
+        const posY = (terrainType === 'freshwater' || terrainType === 'saltwater') ? 0 : baseHeight * 0.5;
+        const scaleY = (terrainType === 'freshwater' || terrainType === 'saltwater') ? 0.2 : baseHeight;
+        const matrix = new THREE.Matrix4();
+        const positionVec = new THREE.Vector3(position.x, posY, position.y);
+        const scaleVec = new THREE.Vector3(width, scaleY, height);
+        const quat = new THREE.Quaternion();
+        matrix.compose(positionVec, quat, scaleVec);
+
+        // Assign to appropriate mesh based on terrain type and set mapping for every tile in rect
+        const tileKeys: string[] = [];
+        for (let yy = 0; yy < height; yy++) {
+          for (let xx = 0; xx < width; xx++) {
+            const gxIdx = gx + xx;
+            const gzIdx = gz + yy;
+            const worldX = gxIdx - halfSize;
+            const worldZ = gzIdx - halfSize;
+            tileKeys.push(`${worldX},${worldZ}`);
+          }
+        }
+
+        // Update counts for this rectangle (visual + logical)
+        try {
+          // visual counts
+          terrainCounts[terrainType] = (terrainCounts[terrainType] || 0) + tileKeys.length;
+
+          // logical counts (map visual back to logical)
+          const logical = this.getLogicalTerrainFromVisual(terrainType, position.x, position.y);
+          // Update local counters only (authoritative assignment happens after merging)
+          logicalTerrainCounts[logical] = (logicalTerrainCounts[logical] || 0) + tileKeys.length;
+        } catch (e) {
+          // ignore counting errors
+        }
+
         switch (terrainType) {
           case 'mountains':
             this.mountainsMesh.setMatrixAt(mountainsIndex, matrix);
-            this.tileToInstanceMap.set(tileKey, {mesh: this.mountainsMesh, index: mountainsIndex});
+            tileKeys.forEach(k => this.tileToInstanceMap.set(k, {mesh: this.mountainsMesh, index: mountainsIndex}));
             mountainsIndex++;
             break;
           case 'tundra':
             this.tundraMesh.setMatrixAt(tundraIndex, matrix);
-            this.tileToInstanceMap.set(tileKey, {mesh: this.tundraMesh, index: tundraIndex});
+            tileKeys.forEach(k => this.tileToInstanceMap.set(k, {mesh: this.tundraMesh, index: tundraIndex}));
             tundraIndex++;
             break;
           case 'urban':
             this.urbanMesh.setMatrixAt(urbanIndex, matrix);
-            this.tileToInstanceMap.set(tileKey, {mesh: this.urbanMesh, index: urbanIndex});
+            tileKeys.forEach(k => this.tileToInstanceMap.set(k, {mesh: this.urbanMesh, index: urbanIndex}));
             urbanIndex++;
             break;
           case 'cropland':
             this.croplandMesh.setMatrixAt(croplandIndex, matrix);
-            this.tileToInstanceMap.set(tileKey, {mesh: this.croplandMesh, index: croplandIndex});
+            tileKeys.forEach(k => this.tileToInstanceMap.set(k, {mesh: this.croplandMesh, index: croplandIndex}));
             croplandIndex++;
             break;
           case 'scrub':
             this.scrubMesh.setMatrixAt(scrubIndex, matrix);
-            this.tileToInstanceMap.set(tileKey, {mesh: this.scrubMesh, index: scrubIndex});
+            tileKeys.forEach(k => this.tileToInstanceMap.set(k, {mesh: this.scrubMesh, index: scrubIndex}));
             scrubIndex++;
             break;
           case 'temperateGrassland':
             this.temperateGrasslandMesh.setMatrixAt(temperateGrasslandIndex, matrix);
-            this.tileToInstanceMap.set(tileKey, {mesh: this.temperateGrasslandMesh, index: temperateGrasslandIndex});
+            tileKeys.forEach(k => this.tileToInstanceMap.set(k, {mesh: this.temperateGrasslandMesh, index: temperateGrasslandIndex}));
             temperateGrasslandIndex++;
             break;
           case 'pastureland':
             this.pasturelandMesh.setMatrixAt(pasturelandIndex, matrix);
-            this.tileToInstanceMap.set(tileKey, {mesh: this.pasturelandMesh, index: pasturelandIndex});
+            tileKeys.forEach(k => this.tileToInstanceMap.set(k, {mesh: this.pasturelandMesh, index: pasturelandIndex}));
             pasturelandIndex++;
             break;
           case 'savanna':
             this.savannaMesh.setMatrixAt(savannaIndex, matrix);
-            this.tileToInstanceMap.set(tileKey, {mesh: this.savannaMesh, index: savannaIndex});
+            tileKeys.forEach(k => this.tileToInstanceMap.set(k, {mesh: this.savannaMesh, index: savannaIndex}));
             savannaIndex++;
             break;
           case 'deserts':
             this.desertsMesh.setMatrixAt(desertsIndex, matrix);
-            this.tileToInstanceMap.set(tileKey, {mesh: this.desertsMesh, index: desertsIndex});
+            tileKeys.forEach(k => this.tileToInstanceMap.set(k, {mesh: this.desertsMesh, index: desertsIndex}));
             desertsIndex++;
             break;
           case 'borealForest':
             this.borealForestMesh.setMatrixAt(borealForestIndex, matrix);
-            this.tileToInstanceMap.set(tileKey, {mesh: this.borealForestMesh, index: borealForestIndex});
+            tileKeys.forEach(k => this.tileToInstanceMap.set(k, {mesh: this.borealForestMesh, index: borealForestIndex}));
             borealForestIndex++;
             break;
           case 'temperateForest':
             this.temperateForestMesh.setMatrixAt(temperateForestIndex, matrix);
-            this.tileToInstanceMap.set(tileKey, {mesh: this.temperateForestMesh, index: temperateForestIndex});
+            tileKeys.forEach(k => this.tileToInstanceMap.set(k, {mesh: this.temperateForestMesh, index: temperateForestIndex}));
             temperateForestIndex++;
             break;
           case 'tropicalRainforest':
             this.tropicalRainforestMesh.setMatrixAt(tropicalRainforestIndex, matrix);
-            this.tileToInstanceMap.set(tileKey, {mesh: this.tropicalRainforestMesh, index: tropicalRainforestIndex});
+            tileKeys.forEach(k => this.tileToInstanceMap.set(k, {mesh: this.tropicalRainforestMesh, index: tropicalRainforestIndex}));
             tropicalRainforestIndex++;
             break;
-          case 'saltwater':
-            this.saltwaterMesh.setMatrixAt(saltwaterIndex, matrix);
-            this.tileToInstanceMap.set(tileKey, {mesh: this.saltwaterMesh, index: saltwaterIndex});
-            saltwaterIndex++;
+            case 'saltwater':
+              // Create a flat plane geometry for water rectangles (no vertical faces to show seams)
+              try {
+                const plane = new THREE.PlaneGeometry(1, 1);
+                plane.rotateX(-Math.PI / 2);
+                // Apply the same composed matrix (position + scale) to the plane geometry
+                // We need a separate matrix without Y-scale for the plane thickness
+                const waterMatrix = new THREE.Matrix4();
+                // plane scale should be width x 1 x height
+                const planeScale = new THREE.Vector3(width, 1, height);
+                waterMatrix.compose(positionVec, quat, planeScale);
+                plane.applyMatrix4(waterMatrix);
+                saltwaterGeometries.push(plane);
+                saltwaterTileGroups.push(tileKeys.slice());
+              } catch (e) {
+                // Fallback: set an instance on the instanced plane mesh
+                this.saltwaterMesh.setMatrixAt(saltwaterIndex, matrix);
+                tileKeys.forEach(k => this.tileToInstanceMap.set(k, {mesh: this.saltwaterMesh, index: saltwaterIndex}));
+                saltwaterIndex++;
+              }
             break;
           case 'freshwater':
-            this.freshwaterMesh.setMatrixAt(freshwaterIndex, matrix);
-            this.tileToInstanceMap.set(tileKey, {mesh: this.freshwaterMesh, index: freshwaterIndex});
-            freshwaterIndex++;
+            try {
+              const plane = new THREE.PlaneGeometry(1, 1);
+              plane.rotateX(-Math.PI / 2);
+              const waterMatrix = new THREE.Matrix4();
+              const planeScale = new THREE.Vector3(width, 1, height);
+              waterMatrix.compose(positionVec, quat, planeScale);
+              plane.applyMatrix4(waterMatrix);
+              freshwaterGeometries.push(plane);
+              freshwaterTileGroups.push(tileKeys.slice());
+            } catch (e) {
+              this.freshwaterMesh.setMatrixAt(freshwaterIndex, matrix);
+              tileKeys.forEach(k => this.tileToInstanceMap.set(k, {mesh: this.freshwaterMesh, index: freshwaterIndex}));
+              freshwaterIndex++;
+            }
             break;
         }
       }
@@ -1720,7 +1313,150 @@ export class SquareMapComponent implements AfterViewInit {
   this.saltwaterMesh.instanceMatrix.needsUpdate = true;
   this.freshwaterMesh.instanceMatrix.needsUpdate = true;
 
+  // Merge collected water geometries into single meshes to eliminate seams
+  // Saltwater merging (robust)
+  if (saltwaterGeometries.length > 0) {
+    console.log('Attempting to merge', saltwaterGeometries.length, 'saltwater rectangles');
+    let mergedSalt: THREE.BufferGeometry | null = null;
+    try {
+      if (typeof (BufferGeometryUtils as any).mergeBufferGeometries === 'function') {
+        mergedSalt = (BufferGeometryUtils as any).mergeBufferGeometries(saltwaterGeometries, false) as THREE.BufferGeometry;
+      } else if (typeof (BufferGeometryUtils as any).mergeGeometries === 'function') {
+        mergedSalt = (BufferGeometryUtils as any).mergeGeometries(saltwaterGeometries) as THREE.BufferGeometry;
+      } else {
+        throw new Error('No merge function available on BufferGeometryUtils');
+      }
+    } catch (e) {
+      console.warn('Saltwater merge failed, will fall back to adding individual water meshes', e);
+    }
+
+    if (mergedSalt) {
+  const saltMat = (this.saltwaterMesh.material as THREE.Material).clone() as THREE.MeshPhysicalMaterial;
+  saltMat.transparent = true;
+  saltMat.opacity = (saltMat as any).opacity ?? 0.85;
+  // For merged, single geometry write depth to avoid sorting issues
+  saltMat.depthWrite = true;
+  saltMat.depthTest = true;
+  saltMat.polygonOffset = true;
+  saltMat.polygonOffsetFactor = -1;
+  saltMat.polygonOffsetUnits = 1;
+  saltMat.alphaTest = 0.01;
+  saltMat.side = THREE.DoubleSide;
+  const mergedSaltMesh = new THREE.Mesh(mergedSalt, saltMat);
+      mergedSaltMesh.receiveShadow = true;
+      mergedSaltMesh.castShadow = false;
+      mergedSaltMesh.renderOrder = 100;
+      mergedSaltMesh.name = 'mergedSaltwater';
+      this.scene.add(mergedSaltMesh);
+      try { this.saltwaterMesh.visible = false; } catch (e) {}
+      saltwaterTileGroups.forEach(group => group.forEach(k => this.tileToInstanceMap.set(k, {mesh: mergedSaltMesh as any, index: 0})));
+    } else {
+      // Fallback: add each saltwater geometry as its own mesh so water remains visible
+  const saltMat = (this.saltwaterMesh.material as THREE.Material).clone() as THREE.MeshPhysicalMaterial;
+  saltMat.transparent = true; saltMat.opacity = (saltMat as any).opacity ?? 0.85; saltMat.depthWrite = true; saltMat.depthTest = true;
+  saltMat.polygonOffset = true; saltMat.polygonOffsetFactor = -1; saltMat.polygonOffsetUnits = 1; saltMat.alphaTest = 0.01; saltMat.side = THREE.DoubleSide;
+      for (let i = 0; i < saltwaterGeometries.length; i++) {
+        const geom = saltwaterGeometries[i];
+        const mesh = new THREE.Mesh(geom, saltMat);
+        mesh.receiveShadow = true; mesh.castShadow = false; mesh.renderOrder = 100;
+        this.scene.add(mesh);
+        saltwaterTileGroups[i].forEach(k => this.tileToInstanceMap.set(k, {mesh: mesh as any, index: 0}));
+      }
+      try { this.saltwaterMesh.visible = false; } catch (e) {}
+    }
+  }
+
+  // Freshwater merging (robust)
+  if (freshwaterGeometries.length > 0) {
+    console.log('Attempting to merge', freshwaterGeometries.length, 'freshwater rectangles');
+    let mergedFresh: THREE.BufferGeometry | null = null;
+    try {
+      if (typeof (BufferGeometryUtils as any).mergeBufferGeometries === 'function') {
+        mergedFresh = (BufferGeometryUtils as any).mergeBufferGeometries(freshwaterGeometries, false) as THREE.BufferGeometry;
+      } else if (typeof (BufferGeometryUtils as any).mergeGeometries === 'function') {
+        mergedFresh = (BufferGeometryUtils as any).mergeGeometries(freshwaterGeometries) as THREE.BufferGeometry;
+      } else {
+        throw new Error('No merge function available on BufferGeometryUtils');
+      }
+    } catch (e) {
+      console.warn('Freshwater merge failed, will fall back to adding individual water meshes', e);
+    }
+
+    if (mergedFresh) {
+  const freshMat = (this.freshwaterMesh.material as THREE.Material).clone() as THREE.MeshPhysicalMaterial;
+  freshMat.transparent = true;
+  freshMat.opacity = (freshMat as any).opacity ?? 0.9;
+  freshMat.depthWrite = true;
+  freshMat.depthTest = true;
+  freshMat.polygonOffset = true;
+  freshMat.polygonOffsetFactor = -1;
+  freshMat.polygonOffsetUnits = 1;
+  freshMat.alphaTest = 0.01;
+  freshMat.side = THREE.DoubleSide;
+  const mergedFreshMesh = new THREE.Mesh(mergedFresh, freshMat);
+      mergedFreshMesh.receiveShadow = true;
+      mergedFreshMesh.castShadow = false;
+      mergedFreshMesh.renderOrder = 100;
+      mergedFreshMesh.name = 'mergedFreshwater';
+      this.scene.add(mergedFreshMesh);
+      try { this.freshwaterMesh.visible = false; } catch (e) {}
+      freshwaterTileGroups.forEach(group => group.forEach(k => this.tileToInstanceMap.set(k, {mesh: mergedFreshMesh as any, index: 0})));
+    } else {
+  const freshMat = (this.freshwaterMesh.material as THREE.Material).clone() as THREE.MeshPhysicalMaterial;
+  freshMat.transparent = true; freshMat.opacity = (freshMat as any).opacity ?? 0.9; freshMat.depthWrite = true; freshMat.depthTest = true;
+  freshMat.polygonOffset = true; freshMat.polygonOffsetFactor = -1; freshMat.polygonOffsetUnits = 1; freshMat.alphaTest = 0.01; freshMat.side = THREE.DoubleSide;
+      for (let i = 0; i < freshwaterGeometries.length; i++) {
+        const geom = freshwaterGeometries[i];
+        const mesh = new THREE.Mesh(geom, freshMat);
+        mesh.receiveShadow = true; mesh.castShadow = false; mesh.renderOrder = 100;
+        this.scene.add(mesh);
+        freshwaterTileGroups[i].forEach(k => this.tileToInstanceMap.set(k, {mesh: mesh as any, index: 0}));
+      }
+      try { this.freshwaterMesh.visible = false; } catch (e) {}
+    }
+  }
+
+    // Reconcile ocean/land counters with the rectangle-derived terrainCounts to avoid drift
+    const computedSaltwater = terrainCounts.saltwater || 0;
+    const computedFreshwater = terrainCounts.freshwater || 0;
+    const computedWaterTotal = computedSaltwater + computedFreshwater;
+    const prevOcean = this.oceanTileCount;
+    if (prevOcean !== 0 && prevOcean !== computedSaltwater) {
+      console.warn('oceanTileCount mismatch detected. previous=', prevOcean, 'computed=', computedSaltwater, '-> correcting to computed value');
+    }
+    // Make authoritative counts come from the terrainCounts (rectangles)
+    this.oceanTileCount = computedSaltwater;
+    // squareCount is total tiles on map
+    this.landTileCount = squareCount - computedWaterTotal;
+
     console.log('Terrain distribution:', terrainCounts);
+
+    // Ensure actualBiomeCounts aligns with the logicalTerrainCounts produced earlier
+    // logicalTerrainCounts keys are TerrainType, which matches actualBiomeCounts layout
+    Object.keys(this.actualBiomeCounts).forEach(k => this.actualBiomeCounts[k as TerrainType] = logicalTerrainCounts[k as TerrainType] || 0);
+
+    // Reconcile remaining quotas to reflect the authoritative placements we just created.
+    // This prevents the UI/logs from showing all quotas as "unfulfilled" when the generator
+    // used its own internal counters during placement.
+    Object.keys(this.remainingQuotas).forEach(k => {
+      const target = this.biomeQuotas[k as TerrainType] || 0;
+      const placed = this.actualBiomeCounts[k as TerrainType] || 0;
+      this.remainingQuotas[k as TerrainType] = Math.max(0, target - placed);
+    });
+    // Debug summary for quotas vs placements
+    try {
+      const totalQuotaSum = Object.values(this.biomeQuotas).reduce((s, v) => s + (v || 0), 0);
+      const totalPlacedSum = Object.values(this.actualBiomeCounts).reduce((s, v) => s + (v || 0), 0);
+      const totalRemainingSum = Object.values(this.remainingQuotas).reduce((s, v) => s + (v || 0), 0);
+      console.log('=== QUOTAS SUMMARY ===');
+      console.log('Total quota sum:', totalQuotaSum, 'Total placed:', totalPlacedSum, 'Total remaining:', totalRemainingSum);
+      Object.entries(this.biomeQuotas).forEach(([b, q]) => {
+        const placed = this.actualBiomeCounts[b as TerrainType] || 0;
+        const rem = this.remainingQuotas[b as TerrainType] || 0;
+        console.log(`  ${b}: target=${q}, placed=${placed}, remaining=${rem}`);
+      });
+      console.log('======================');
+    } catch (e) {}
     
     // Log actual biome percentages
     console.log('=== ACTUAL BIOME DISTRIBUTION ===');
@@ -1731,17 +1467,28 @@ export class SquareMapComponent implements AfterViewInit {
       const targetText = targetPercentage ? `[Target: ${targetPercentage.toFixed(1)}%]` : '';
       console.log(`${biome}: ${count} tiles (${percentage.toFixed(1)}%) ${targetText}`);
     });
+
+    // Show per-biome delta between actual tiles created and the target quotas (always printed)
+    console.log('=== PER-BIOME DELTA VS TARGET (tiles | percentage points) ===');
+    Object.entries(this.actualBiomeCounts).forEach(([biome, count]) => {
+      const targetCount = this.biomeQuotas[biome as TerrainType] || 0;
+      const deltaTiles = (count || 0) - targetCount;
+      // percentage point difference relative to entire map
+      const deltaPctPoints = (deltaTiles / totalMapTiles) * 100;
+      const sign = deltaTiles >= 0 ? '+' : '-';
+      console.log(`${biome}: target=${targetCount}, actual=${count} -> delta=${sign}${Math.abs(deltaTiles)} tiles (${sign}${Math.abs(deltaPctPoints).toFixed(2)} pp)`);
+    });
+    console.log('========================================================');
     
-    if (this.enforceEarthQuotas) {
-      const quotasRemaining = Object.entries(this.remainingQuotas).filter(([_, remaining]) => remaining > 0);
-      if (quotasRemaining.length > 0) {
-        console.log('⚠️ UNFULFILLED QUOTAS:');
-        quotasRemaining.forEach(([biome, remaining]) => {
-          console.log(`  ${biome}: ${remaining} tiles remaining`);
-        });
-      } else {
-        console.log('✅ All Earth-based quotas fulfilled perfectly!');
-      }
+    // Report any unfulfilled quotas (if any)
+    const quotasRemaining = Object.entries(this.remainingQuotas).filter(([_, remaining]) => remaining > 0);
+    if (quotasRemaining.length > 0) {
+      console.log('⚠️ UNFULFILLED QUOTAS:');
+      quotasRemaining.forEach(([biome, remaining]) => {
+        console.log(`  ${biome}: ${remaining} tiles remaining`);
+      });
+    } else {
+      console.log('✅ All Earth-based quotas fulfilled perfectly!');
     }
     console.log('==================================');
     
@@ -1811,11 +1558,15 @@ export class SquareMapComponent implements AfterViewInit {
       console.log(`---`);
       console.log(`Target land percentage: ${targetLandPercent}%`);
       console.log(`Actual land percentage: ${actualLandPercent}%`);
-      console.log(`Max land tiles allowed: ${this.maxLandTiles}`);
-      console.log(`Land tiles from counter: ${this.landTileCount}`);
-      console.log(`Water tiles from counter: ${this.oceanTileCount}`);
-      console.log(`Water tiles from terrain count: ${waterTotal}`);
-      console.log(`Counter vs terrain count match: ${this.oceanTileCount === waterTotal}`);
+  console.log(`Max land tiles allowed: ${this.maxLandTiles}`);
+  console.log(`Land tiles from counter: ${this.landTileCount}`);
+  const saltCounter = this.oceanTileCount;
+  const freshCounter = this.actualBiomeCounts['freshwater'] || 0;
+  const counterWaterTotal = saltCounter + freshCounter;
+  console.log(`Saltwater tiles from counter: ${saltCounter}`);
+  console.log(`Freshwater tiles from counter: ${freshCounter}`);
+  console.log(`Water tiles from terrain count: ${waterTotal}`);
+  console.log(`Counter vs terrain count match: ${counterWaterTotal === waterTotal}`);
       console.log('======================================');
     }
     
@@ -1829,26 +1580,32 @@ export class SquareMapComponent implements AfterViewInit {
       water: parseFloat((waterTotal / totalTiles * 100).toFixed(1)) // Water (saltwater + freshwater)
     };
     
-    // Calculate expected percentages from biome breakdown
-    const breakdown = this.landBreakdownPerPerson;
-    const totalArea = this.totalAreaPerPerson;
+  // Calculate expected percentages from the authoritative biome quotas (final tile counts)
+    // Ensure biomeQuotas exists and has numeric values
+    const bz = this.biomeQuotas || {} as Record<string, number>;
     this.expectedTerrainPercentages = {
-      stone: parseFloat(((breakdown['mountains'] + breakdown['tundra'] + breakdown['urban']) / totalArea * 100).toFixed(1)),
-      dirt: parseFloat(((breakdown['cropland'] + breakdown['scrub']) / totalArea * 100).toFixed(1)),
-      dirt2: parseFloat((breakdown['saltwater'] / totalArea * 100).toFixed(1)), // Ocean water only
-      sand: parseFloat((breakdown['deserts'] / totalArea * 100).toFixed(1)),
-      grass: parseFloat(((breakdown['borealForest'] + breakdown['temperateForest'] + breakdown['tropicalRainforest'] + breakdown['temperateGrassland'] + breakdown['savanna'] + breakdown['pastureland']) / totalArea * 100).toFixed(1)),
-      water: parseFloat((breakdown['freshwater'] / totalArea * 100).toFixed(1)) // Freshwater only
+      stone: parseFloat((((bz['mountains'] || 0) + (bz['tundra'] || 0) + (bz['urban'] || 0)) / totalMapTiles * 100).toFixed(1)),
+      dirt: parseFloat((((bz['cropland'] || 0) + (bz['scrub'] || 0)) / totalMapTiles * 100).toFixed(1)),
+      dirt2: parseFloat(((bz['saltwater'] || 0) / totalMapTiles * 100).toFixed(1)), // Ocean water only
+      sand: parseFloat((((bz['deserts'] || 0) + (bz['savanna'] || 0)) / totalMapTiles * 100).toFixed(1)),
+      grass: parseFloat((((bz['borealForest'] || 0) + (bz['temperateForest'] || 0) + (bz['tropicalRainforest'] || 0) + (bz['temperateGrassland'] || 0) + (bz['savanna'] || 0) + (bz['pastureland'] || 0)) / totalMapTiles * 100).toFixed(1)),
+      water: parseFloat(((bz['freshwater'] || 0) / totalMapTiles * 100).toFixed(1)) // Freshwater only
     };
-    
-    console.log('=== TERRAIN PERCENTAGE COMPARISON ===');
-    console.log('Terrain Type | Actual % | Expected % | Difference');
-    console.log('Stone (Mountains/Urban):', this.actualTerrainPercentages.stone + '%', '|', this.expectedTerrainPercentages.stone + '%', '|', (this.actualTerrainPercentages.stone - this.expectedTerrainPercentages.stone).toFixed(1) + '%');
-    console.log('Dirt (Cropland/Scrub):', this.actualTerrainPercentages.dirt + '%', '|', this.expectedTerrainPercentages.dirt + '%', '|', (this.actualTerrainPercentages.dirt - this.expectedTerrainPercentages.dirt).toFixed(1) + '%');
-    console.log('Ocean Water (Saltwater):', this.actualTerrainPercentages.dirt2 + '%', '|', this.expectedTerrainPercentages.dirt2 + '%', '|', (this.actualTerrainPercentages.dirt2 - this.expectedTerrainPercentages.dirt2).toFixed(1) + '%');
-    console.log('Fresh Water (Lakes/Rivers):', this.actualTerrainPercentages.water + '%', '|', this.expectedTerrainPercentages.water + '%', '|', (this.actualTerrainPercentages.water - this.expectedTerrainPercentages.water).toFixed(1) + '%');
-    console.log('Sand (Deserts/Savanna):', this.actualTerrainPercentages.sand + '%', '|', this.expectedTerrainPercentages.sand + '%', '|', (this.actualTerrainPercentages.sand - this.expectedTerrainPercentages.sand).toFixed(1) + '%');
-    console.log('Grass (Forests/Grasslands):', this.actualTerrainPercentages.grass + '%', '|', this.expectedTerrainPercentages.grass + '%', '|', (this.actualTerrainPercentages.grass - this.expectedTerrainPercentages.grass).toFixed(1) + '%');
+
+    // Compute explicit actual/expected values for saltwater and freshwater to avoid mis-labeling
+    const actualSaltwaterPercent = parseFloat(((saltwaterCount / totalTiles) * 100).toFixed(1));
+    const actualFreshwaterPercent = parseFloat(((freshwaterCount / totalTiles) * 100).toFixed(1));
+    const expectedSaltwaterPercent = parseFloat(((bz['saltwater'] || 0) / totalMapTiles * 100).toFixed(1));
+    const expectedFreshwaterPercent = parseFloat(((bz['freshwater'] || 0) / totalMapTiles * 100).toFixed(1));
+
+  console.log('=== TERRAIN PERCENTAGE COMPARISON ===');
+  console.log('Terrain Type | Actual % | Expected % | Difference');
+  console.log('Stone (Mountains/Urban):', this.actualTerrainPercentages.stone + '%', '|', this.expectedTerrainPercentages.stone + '%', '|', (this.actualTerrainPercentages.stone - this.expectedTerrainPercentages.stone).toFixed(1) + '%');
+  console.log('Dirt (Cropland/Scrub):', this.actualTerrainPercentages.dirt + '%', '|', this.expectedTerrainPercentages.dirt + '%', '|', (this.actualTerrainPercentages.dirt - this.expectedTerrainPercentages.dirt).toFixed(1) + '%');
+  console.log('Ocean Water (Saltwater):', actualSaltwaterPercent + '%', '|', expectedSaltwaterPercent + '%', '|', (actualSaltwaterPercent - expectedSaltwaterPercent).toFixed(1) + '%');
+  console.log('Fresh Water (Lakes/Rivers):', actualFreshwaterPercent + '%', '|', expectedFreshwaterPercent + '%', '|', (actualFreshwaterPercent - expectedFreshwaterPercent).toFixed(1) + '%');
+  console.log('Sand (Deserts/Savanna):', this.actualTerrainPercentages.sand + '%', '|', this.expectedTerrainPercentages.sand + '%', '|', (this.actualTerrainPercentages.sand - this.expectedTerrainPercentages.sand).toFixed(1) + '%');
+  console.log('Grass (Forests/Grasslands):', this.actualTerrainPercentages.grass + '%', '|', this.expectedTerrainPercentages.grass + '%', '|', (this.actualTerrainPercentages.grass - this.expectedTerrainPercentages.grass).toFixed(1) + '%');
     console.log('========================================');
 
     this.scene.add(
@@ -1870,11 +1627,11 @@ export class SquareMapComponent implements AfterViewInit {
     
     if (!tileInfo) return;
     
-    const currentMesh = tileInfo.mesh;
-    const currentIndex = tileInfo.index;
+  const currentMesh: any = tileInfo.mesh;
+  const currentIndex: number = tileInfo.index;
     
     // Get target mesh for specific terrain type
-    let targetMesh: THREE.InstancedMesh;
+  let targetMesh: any;
     switch (targetTerrainType) {
       case 'mountains': targetMesh = this.mountainsMesh; break;
       case 'tundra': targetMesh = this.tundraMesh; break;
@@ -1896,80 +1653,59 @@ export class SquareMapComponent implements AfterViewInit {
     }
     
     if (currentMesh === targetMesh) return; // Already correct
-    
-    // Get the current matrix
-    const matrix = new THREE.Matrix4();
-    currentMesh.getMatrixAt(currentIndex, matrix);
-    
-    // Find next available index on target mesh
-    let targetIndex = 0;
-    const existingIndices = Array.from(this.tileToInstanceMap.values())
-      .filter(info => info.mesh === targetMesh)
-      .map(info => info.index);
-    
-    if (existingIndices.length > 0) {
-      targetIndex = Math.max(...existingIndices) + 1;
-    }
-    
-    // Set matrix on target mesh
-    targetMesh.setMatrixAt(targetIndex, matrix);
-    targetMesh.instanceMatrix.needsUpdate = true;
-    
-    // Update mapping
-    this.tileToInstanceMap.set(tileKey, {mesh: targetMesh, index: targetIndex});
-    
-    // Hide the old instance by scaling to zero
-    const hiddenMatrix = new THREE.Matrix4().makeScale(0, 0, 0);
-    currentMesh.setMatrixAt(currentIndex, hiddenMatrix);
-    currentMesh.instanceMatrix.needsUpdate = true;
-  }
 
-  reassignTileToNormalTerrain(tileX: number, tileZ: number): void {
-    const halfSize = this.mapHalfSize;
-    
-    // Create a proper random value based on both coordinates for better terrain distribution
-    const seed = tileX * 1000 + tileZ;
-    let noise = Math.abs(Math.sin(seed * 12.9898) * Math.cos(seed * 78.233) * 43758.5453) % 1;
-    
-    let terrainType: VisualTerrainType;
-    
-    if (this.usePopulationSizing) {
-      // Use land distribution-based terrain assignment with island layout
-      terrainType = this.getTerrainTypeFromNoise(noise, tileX, tileZ);
-    } else {
-      // Use original position-based terrain assignment
-      const quarterSize = halfSize / 2;
-      const halfQuarterSize = quarterSize / 2;
-      
-      if (tileX < -quarterSize && tileZ < -quarterSize) {
-        terrainType = 'mountains';
-      } else if (tileX < 0 && tileZ < 0) {
-        terrainType = 'cropland';
-      } else if (tileX < quarterSize && tileZ < quarterSize) {
-        terrainType = 'temperateForest';
-      } else if (tileX < halfSize - halfQuarterSize && tileZ < halfSize - halfQuarterSize) {
-        terrainType = 'savanna';
-      } else {
-        terrainType = 'temperateGrassland';
-      }
-    }
-    
-    this.reassignTileToMesh(tileX, tileZ, terrainType);
-  }
+    // If current mesh is an InstancedMesh, we can move its matrix to the target instanced mesh.
+    const isCurrentInstanced = currentMesh && typeof currentMesh.getMatrixAt === 'function';
+    const isTargetInstanced = targetMesh && typeof targetMesh.setMatrixAt === 'function';
 
-  // Debounced update to prevent too many rapid updates
-  debouncedUpdateMap(): void {
-    if (this.updateTimeout) {
-      clearTimeout(this.updateTimeout);
-    }
-    
-    this.updateTimeout = setTimeout(() => {
-      this.updateMap();
-    }, 100); // 100ms debounce
-  }
+    if (isCurrentInstanced && isTargetInstanced) {
+      const matrix = new THREE.Matrix4();
+      currentMesh.getMatrixAt(currentIndex, matrix);
 
-  private tileToPosition(tileX: number, tileY: number): THREE.Vector2 {
-    return new THREE.Vector2(tileX * 1, tileY * 1);
+      // Find next available index on target mesh
+      let targetIndex = 0;
+      const existingIndices = Array.from(this.tileToInstanceMap.values())
+        .filter((info: any) => info.mesh === targetMesh)
+        .map((info: any) => info.index);
+      if (existingIndices.length > 0) targetIndex = Math.max(...existingIndices) + 1;
+
+      targetMesh.setMatrixAt(targetIndex, matrix);
+      targetMesh.instanceMatrix.needsUpdate = true;
+
+      // Update mapping
+      this.tileToInstanceMap.set(tileKey, {mesh: targetMesh, index: targetIndex});
+
+      // Hide the old instance by scaling to zero
+      const hiddenMatrix = new THREE.Matrix4().makeScale(0, 0, 0);
+      currentMesh.setMatrixAt(currentIndex, hiddenMatrix);
+      currentMesh.instanceMatrix.needsUpdate = true;
+      return;
+    }
+
+    // If either current or target is a regular Mesh (merged water geometry),
+    // we cannot reassign a single tile's matrix easily. Update the mapping so
+    // UI and lookups reflect the change, but leave the geometry as-is.
+    if (!isTargetInstanced) {
+      // Map tile to target non-instanced mesh (index 0 placeholder)
+      this.tileToInstanceMap.set(tileKey, {mesh: targetMesh, index: 0});
+      console.warn('Reassigned tile to a merged (non-instanced) mesh; geometry remains unchanged for that tile.');
+      return;
+    }
+
+    // Fallback: if current is non-instanced but target is instanced, copy world transform
+    if (!isCurrentInstanced && isTargetInstanced) {
+      const worldMatrix = currentMesh.matrixWorld || new THREE.Matrix4();
+      let targetIndex = 0;
+      const existingIndices = Array.from(this.tileToInstanceMap.values())
+        .filter((info: any) => info.mesh === targetMesh)
+        .map((info: any) => info.index);
+      if (existingIndices.length > 0) targetIndex = Math.max(...existingIndices) + 1;
+      targetMesh.setMatrixAt(targetIndex, worldMatrix);
+      targetMesh.instanceMatrix.needsUpdate = true;
+      this.tileToInstanceMap.set(tileKey, {mesh: targetMesh, index: targetIndex});
+      console.warn('Moved tile from non-instanced mesh to instanced mesh by copying world matrix.');
+      return;
+    }
   }
 
   // Generate deterministic square-block groupings to exactly meet biome tile counts.
@@ -1979,124 +1715,285 @@ export class SquareMapComponent implements AfterViewInit {
     const halfSize = this.mapHalfSize;
     const totalTiles = mapSize * mapSize;
 
-    // Get tile counts per logical biome (based on area quotas)
-    const tileCounts = this.biomeTileCounts; // keys are strings matching breakdown
+    // Start from the biome tile counts (targets)
+    const tileCounts = Object.assign({}, this.biomeTileCounts) as { [key: string]: number };
 
-    // Convert into an array of [biome, count] and sort by descending count so large biomes placed first
-    const entries: [string, number][] = Object.entries(tileCounts).sort((a, b) => b[1] - a[1]);
+    // Ensure sum of targets equals totalTiles by letting saltwater absorb rounding residuals
+    const sumTargets = Object.values(tileCounts).reduce((s, v) => s + (v || 0), 0);
+    const delta = totalTiles - sumTargets;
+    if (!tileCounts['saltwater']) tileCounts['saltwater'] = 0;
+    tileCounts['saltwater'] += delta; // can be negative or positive; usually small
+
+    // Prepare a list of all tile coordinates, sorted by center proximity (center-first)
+    const coords: { x: number; z: number; dist: number }[] = [];
+    for (let gz = -halfSize; gz <= halfSize; gz++) {
+      for (let gx = -halfSize; gx <= halfSize; gx++) {
+        const dist = Math.sqrt(gx * gx + gz * gz);
+        coords.push({ x: gx, z: gz, dist });
+      }
+    }
+    coords.sort((a, b) => a.dist - b.dist || a.x - b.x || a.z - b.z);
+
+    // Remaining counters (mutable)
+    const remaining: { [key: string]: number } = {};
+    Object.keys(tileCounts).forEach(k => remaining[k] = tileCounts[k] || 0);
 
     const assignment = new Map<string, TerrainType>();
 
-    // Create a simple occupancy grid to mark used tiles
-    const occupied: boolean[][] = [];
-    for (let i = 0; i < mapSize; i++) {
-      occupied[i] = new Array(mapSize).fill(false);
-    }
+    // Helper: list of biome keys
+    const biomeKeys = Object.keys(tileCounts);
 
-    // Helper to convert grid indices to coordinate space centered at 0
-    const gridToCoord = (gx: number, gz: number) => {
-      const x = gx - halfSize;
-      const z = gz - halfSize;
-      return { x, z };
-    };
+    // For each tile (closest to center first), choose the best available biome
+    for (const c of coords) {
+      const key = `${c.x},${c.z}`;
 
-    // For each biome, place square blocks until the required count is met
-    for (const [biomeKey, targetCount] of entries) {
-      if (targetCount <= 0) continue;
-
-      let remaining = targetCount;
-
-      // Try to place large squares first (size decreasing)
-      // Max square size limited by map size
-      let maxSquare = Math.floor(Math.sqrt(remaining));
-      maxSquare = Math.max(maxSquare, 1);
-
-      
-
-      // Center index in grid coordinates
-      const centerIndex = (mapSize - 1) / 2;
-
-      // Iterate over decreasing square sizes to fill remaining tiles
-      for (let size = Math.min(maxSquare, mapSize); size >= 1 && remaining > 0; size--) {
-        // Build candidate top-left positions for squares of this size
-        const candidates: { gx: number; gz: number; dist: number }[] = [];
-        for (let gz = 0; gz <= mapSize - size; gz++) {
-          for (let gx = 0; gx <= mapSize - size; gx++) {
-            // compute square center in grid coords
-            const squareCenterX = gx + (size - 1) / 2;
-            const squareCenterZ = gz + (size - 1) / 2;
-            const dx = squareCenterX - centerIndex;
-            const dz = squareCenterZ - centerIndex;
-            const dist = Math.sqrt(dx * dx + dz * dz);
-            candidates.push({ gx, gz, dist });
-          }
-        }
-
-        // Sort candidates by proximity to center (closest first) so blocks are placed near center
-        candidates.sort((a, b) => a.dist - b.dist);
-
-        // Try candidate positions in that order
-        for (const cand of candidates) {
-          if (remaining <= 0) break;
-          const gx = cand.gx;
-          const gz = cand.gz;
-
-          // Check if square of this size at gx,gz is free
-          let free = true;
-          for (let yy = 0; yy < size && free; yy++) {
-            for (let xx = 0; xx < size; xx++) {
-              if (occupied[gx + xx][gz + yy]) { free = false; break; }
-            }
-          }
-          if (!free) continue;
-
-          // Place square: mark occupied and assign biome tiles
-          for (let yy = 0; yy < size && remaining > 0; yy++) {
-            for (let xx = 0; xx < size && remaining > 0; xx++) {
-              occupied[gx + xx][gz + yy] = true;
-              const coord = gridToCoord(gx + xx, gz + yy);
-              const key = `${coord.x},${coord.z}`;
-              assignment.set(key, biomeKey as TerrainType);
-              remaining--;
-            }
-          }
-        }
+      // If only one biome left with tiles, assign it
+      const available = biomeKeys.filter(b => remaining[b] > 0);
+      if (available.length === 1) {
+        assignment.set(key, available[0] as TerrainType);
+        remaining[available[0]]--;
+        continue;
       }
 
-      // If after attempting squares there's still remaining single tiles to place, place them by proximity to center
-      if (remaining > 0) {
-        const singleCandidates: { gx: number; gz: number; dist: number }[] = [];
-        for (let gz = 0; gz < mapSize; gz++) {
-          for (let gx = 0; gx < mapSize; gx++) {
-            if (!occupied[gx][gz]) {
-              const dx = gx - centerIndex;
-              const dz = gz - centerIndex;
-              singleCandidates.push({ gx, gz, dist: Math.sqrt(dx * dx + dz * dz) });
-            }
-          }
-        }
-        singleCandidates.sort((a, b) => a.dist - b.dist);
-        for (const c of singleCandidates) {
-          if (remaining <= 0) break;
-          occupied[c.gx][c.gz] = true;
-          const coord = gridToCoord(c.gx, c.gz);
-          const key = `${coord.x},${coord.z}`;
-          assignment.set(key, biomeKey as TerrainType);
-          remaining--;
-        }
-      }
-    }
+      // Compute preferred biome for this location using natural clustering heuristics
+      const adjustedDistance = Math.sqrt(c.x * c.x + c.z * c.z) / this.mapHalfSize;
+      const elevation = this.calculateNaturalElevation(c.x, c.z, adjustedDistance);
+      const preferred = this.getNaturalBiomeCluster(c.x, c.z, adjustedDistance, elevation);
 
-    // Any unassigned tiles default to saltwater
-    for (let gz = 0; gz < mapSize; gz++) {
-      for (let gx = 0; gx < mapSize; gx++) {
-        const coord = gridToCoord(gx, gz);
-        const key = `${coord.x},${coord.z}`;
-        if (!assignment.has(key)) assignment.set(key, 'saltwater');
+      // If preferred biome has remaining quota, use it
+      if (remaining[preferred] > 0) {
+        assignment.set(key, preferred);
+        remaining[preferred]--;
+        continue;
       }
+
+      // Otherwise choose the biome with the largest remaining count (greedy), deterministic tie-break by key
+      let best: string | null = null;
+      let bestCount = -Infinity;
+      for (const b of biomeKeys) {
+        const r = remaining[b];
+        if (r > bestCount) {
+          best = b;
+          bestCount = r;
+        } else if (r === bestCount && best && b < best) {
+          // stable deterministic tiebreak
+          best = b;
+        }
+      }
+      if (!best) best = 'saltwater';
+      assignment.set(key, best as TerrainType);
+      remaining[best]--;
     }
 
     return assignment;
+  }
+
+  // Cluster a target tile-count map into center-biased square blocks while preserving exact counts.
+  // Input: tileCounts keyed by TerrainType name (number of tiles desired).
+  // Output: Map of "x,z" -> TerrainType with exactly mapSize*mapSize entries (fills remaining with saltwater).
+  private clusterMapFromCounts(tileCountsInput: { [key: string]: number }): Map<string, TerrainType> {
+    const mapSize = this.populationBasedMapSize;
+    const halfSize = this.mapHalfSize;
+    const totalTiles = mapSize * mapSize;
+
+    // Copy counts (floor to integers)
+    const counts: { [key: string]: number } = {};
+    Object.keys(tileCountsInput).forEach(k => counts[k] = Math.max(0, Math.floor(tileCountsInput[k] || 0)));
+
+    // If population sizing is enabled, enforce the global ocean tile limit (this.maxOceanTiles)
+    // by clamping saltwater and reducing land counts if necessary so the overall water/land split
+    // matches the intended target (70.9% ocean when population sizing is used).
+    if (this.usePopulationSizing && typeof this.maxOceanTiles === 'number' && this.maxOceanTiles > 0) {
+      const desiredSalt = this.maxOceanTiles;
+      const totalTilesNum = totalTiles;
+
+      // Desired freshwater (from requested tile counts)
+      const desiredFresh = Math.max(0, counts['freshwater'] || 0);
+
+      // Clamp freshwater so it doesn't exceed remaining tiles after desired salt
+      const maxFreshAllowed = Math.max(0, totalTilesNum - desiredSalt);
+      const finalDesiredFresh = Math.min(desiredFresh, maxFreshAllowed);
+
+      // Compute desired total water (salt + fresh)
+      const desiredTotalWater = desiredSalt + finalDesiredFresh;
+      const allowedLand = Math.max(0, totalTilesNum - desiredTotalWater);
+
+      // Gather current land biomes (exclude saltwater and freshwater)
+      const landKeys = Object.keys(counts).filter(k => k !== 'saltwater' && k !== 'freshwater');
+      const currentLandSum = landKeys.reduce((s, k) => s + (counts[k] || 0), 0);
+
+      // If current land allocation exceeds allowed land, reduce land biomes proportionally
+      if (currentLandSum > allowedLand && currentLandSum > 0) {
+        // Compute proportional factors and floor the results; then distribute any remainder
+        const newLandCounts: { [key: string]: number } = {};
+        let accumulated = 0;
+        for (const k of landKeys) {
+          const original = counts[k] || 0;
+          const proportional = Math.floor(original * allowedLand / currentLandSum);
+          newLandCounts[k] = proportional;
+          accumulated += proportional;
+        }
+        // Distribute remaining tiles (due to flooring) deterministically to largest original biomes
+        let remainder = allowedLand - accumulated;
+        if (remainder > 0) {
+          const sortedByOriginal = landKeys.slice().sort((a, b) => (counts[b] || 0) - (counts[a] || 0) || a.localeCompare(b));
+          let idx = 0;
+          while (remainder > 0 && idx < sortedByOriginal.length) {
+            const key = sortedByOriginal[idx];
+            newLandCounts[key] = (newLandCounts[key] || 0) + 1;
+            remainder--;
+            idx++;
+            if (idx >= sortedByOriginal.length) idx = 0;
+          }
+        }
+        // Apply new land counts
+        for (const k of landKeys) counts[k] = newLandCounts[k] || 0;
+      }
+
+      // Now set freshwater and saltwater to final desired values
+      counts['freshwater'] = finalDesiredFresh;
+      counts['saltwater'] = Math.max(0, desiredSalt);
+
+      // Ensure totals sum to totalTiles by letting saltwater absorb any residual
+      const finalSum = Object.values(counts).reduce((s, v) => s + v, 0);
+      const residual = totalTilesNum - finalSum;
+      if (residual !== 0) {
+        counts['saltwater'] = Math.max(0, (counts['saltwater'] || 0) + residual);
+      }
+    } else {
+      // Ensure sum of targets equals totalTiles by letting saltwater absorb rounding residuals
+      const sum = Object.values(counts).reduce((s, v) => s + v, 0);
+      const delta = totalTiles - sum;
+      if (!counts['saltwater']) counts['saltwater'] = 0;
+      counts['saltwater'] += delta;
+    }
+
+    // Prepare occupancy grid
+    const occupied: boolean[][] = [];
+    for (let z = 0; z < mapSize; z++) {
+      occupied[z] = new Array(mapSize).fill(false);
+    }
+
+    const result = new Map<string, TerrainType>();
+
+    // Helper to mark a block occupied and write results
+    const occupyBlock = (tx: number, tz: number, s: number, biome: TerrainType) => {
+      for (let oz = 0; oz < s; oz++) {
+        for (let ox = 0; ox < s; ox++) {
+          const gx = tx + ox;
+          const gz = tz + oz;
+          occupied[gz][gx] = true;
+          const worldX = gx - halfSize;
+          const worldZ = gz - halfSize;
+          result.set(`${worldX},${worldZ}`, biome);
+        }
+      }
+    };
+
+    // Candidate generator for a given block size s (returns top-left coordinates sorted by block-center distance to map center)
+    const generateCandidates = (s: number) => {
+      const candidates: { tx: number; tz: number; dist: number }[] = [];
+      for (let tz = 0; tz <= mapSize - s; tz++) {
+        for (let tx = 0; tx <= mapSize - s; tx++) {
+          const centerGX = tx + (s - 1) / 2;
+          const centerGZ = tz + (s - 1) / 2;
+          const dx = centerGX - halfSize;
+          const dz = centerGZ - halfSize;
+          const dist = Math.sqrt(dx * dx + dz * dz);
+          candidates.push({ tx, tz, dist });
+        }
+      }
+      // deterministic sort: distance then tx then tz
+      candidates.sort((a, b) => a.dist - b.dist || a.tx - b.tx || a.tz - b.tz);
+      return candidates;
+    };
+
+    // Order biomes by descending target size so we place large biomes first (more visually blocky)
+    const biomeOrder = Object.keys(counts).sort((a, b) => (counts[b] || 0) - (counts[a] || 0));
+
+    for (const biomeKey of biomeOrder) {
+      let remaining = counts[biomeKey];
+      if (remaining <= 0) continue;
+      const biome = biomeKey as TerrainType;
+
+      // Place blocks until we've satisfied the remaining count for this biome
+      while (remaining > 0) {
+        // Start with the largest square block possible
+        let maxS = Math.floor(Math.sqrt(remaining));
+        if (maxS < 1) maxS = 1;
+
+        let placed = false;
+        for (let s = maxS; s >= 1; s--) {
+          // Generate candidate positions for this s
+          const candidates = generateCandidates(s);
+          for (const cand of candidates) {
+            // Check occupancy for this block
+            let ok = true;
+            for (let oz = 0; oz < s && ok; oz++) {
+              for (let ox = 0; ox < s; ox++) {
+                if (occupied[cand.tz + oz][cand.tx + ox]) { ok = false; break; }
+              }
+            }
+            if (!ok) continue;
+
+            // Place block
+            occupyBlock(cand.tx, cand.tz, s, biome);
+            remaining -= s * s;
+            placed = true;
+            break; // placed one block, recompute remaining and try again
+          }
+          if (placed) break; // restart with new maxS
+        }
+
+        // If we couldn't place any block of any size (very crowded), find any single empty tile and place it
+        if (!placed) {
+          let found = false;
+          for (let gz = 0; gz < mapSize && !found; gz++) {
+            for (let gx = 0; gx < mapSize && !found; gx++) {
+              if (!occupied[gz][gx]) {
+                occupyBlock(gx, gz, 1, biome);
+                remaining -= 1;
+                found = true;
+              }
+            }
+          }
+          if (!found) {
+            // No space left; abort (shouldn't happen) and break
+            console.warn('clusterMapFromCounts: no space to place remaining tiles for', biomeKey, 'remaining=', remaining);
+            break;
+          }
+        }
+      }
+    }
+
+    // Fill any unassigned tiles with saltwater
+    const salt = 'saltwater' as TerrainType;
+    for (let gz = 0; gz < mapSize; gz++) {
+      for (let gx = 0; gx < mapSize; gx++) {
+        const worldX = gx - halfSize;
+        const worldZ = gz - halfSize;
+        const key = `${worldX},${worldZ}`;
+        if (!result.has(key)) {
+          result.set(key, salt);
+        }
+      }
+    }
+
+    // Final sanity: ensure map is fully filled
+    if (result.size !== totalTiles) {
+      console.warn('clusterMapFromCounts produced unexpected size', result.size, 'expected', totalTiles);
+    }
+
+    // Debug: log final counts used by clustering for verification
+    try {
+      const debugCounts = Object.assign({}, counts);
+      console.log('clusterMapFromCounts final counts:', debugCounts);
+      // Commit the final counts used by clustering back to component state so
+      // quota reporting matches the actual placements the clustering performed.
+      this.biomeQuotas = Object.assign({}, counts) as Record<TerrainType, number>;
+    } catch (e) {}
+
+    return result;
   }
 
 

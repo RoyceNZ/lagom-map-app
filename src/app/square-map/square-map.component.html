@@ -14,13 +14,29 @@
             <div style="width: 20px; height: 20px; background: #20a0ff; border: 1px solid #ccc; margin-right: 8px; border-radius: 3px;"></div>
             <span style="font-size: 13px;"><strong>Saltwater (Oceans/Seas)</strong><br>
               {{ getActualBiomePercentage('saltwater').toFixed(1) }}% 
-              <span *ngIf="enforceEarthQuotas" style="color: #666;">(Target: {{ getTargetBiomePercentage('saltwater').toFixed(1) }}%) {{ getQuotaStatus('saltwater') }}</span><br>
+              <span style="color: #666; display:block;">
+                (Target: {{ getTargetBiomePercentage('saltwater').toFixed(1) }}% — {{ ((getTargetBiomePercentage('saltwater')/100) * (populationBasedMapSize * populationBasedMapSize)) | number:'1.0-0' }} tiles)
+                <br>
+                <span [style.color]="(getActualBiomeCount('saltwater') - ((getTargetBiomePercentage('saltwater')/100) * (populationBasedMapSize*populationBasedMapSize))) === 0 ? '#666' : (getActualBiomeCount('saltwater') - ((getTargetBiomePercentage('saltwater')/100) * (populationBasedMapSize*populationBasedMapSize)) ) > 0 ? 'red' : 'green'">
+                  Δ: {{ (getActualBiomeCount('saltwater') - ((getTargetBiomePercentage('saltwater')/100) * (populationBasedMapSize*populationBasedMapSize))) | number:'1.0-0' }} tiles
+                </span>
+                {{ getQuotaStatus('saltwater') }}
+              </span>
+              <br>
               ({{ getActualBiomeCount('saltwater').toLocaleString() }} tiles)</span>
           </div>
           <div style="display: flex; align-items: center; padding: 4px;">
             <div style="width: 20px; height: 20px; background: #4080ff; border: 1px solid #ccc; margin-right: 8px; border-radius: 3px;"></div>
             <span style="font-size: 13px;"><strong>Freshwater (Lakes/Rivers)</strong><br>
               {{ getActualBiomePercentage('freshwater').toFixed(1) }}% 
+              <span style="color: #666; display:block;">
+                (Target: {{ getTargetBiomePercentage('freshwater').toFixed(1) }}% — {{ ((getTargetBiomePercentage('freshwater')/100) * (populationBasedMapSize * populationBasedMapSize)) | number:'1.0-0' }} tiles)
+                <br>
+                <span [style.color]="(getActualBiomeCount('freshwater') - ((getTargetBiomePercentage('freshwater')/100) * (populationBasedMapSize*populationBasedMapSize))) === 0 ? '#666' : (getActualBiomeCount('freshwater') - ((getTargetBiomePercentage('freshwater')/100) * (populationBasedMapSize*populationBasedMapSize)) ) > 0 ? 'red' : 'green'">
+                  Δ: {{ (getActualBiomeCount('freshwater') - ((getTargetBiomePercentage('freshwater')/100) * (populationBasedMapSize*populationBasedMapSize))) | number:'1.0-0' }} tiles
+                </span>
+              </span>
+              <br>
               ({{ getActualBiomeCount('freshwater').toLocaleString() }} tiles)</span>
           </div>
         </div>
@@ -34,19 +50,43 @@
             <div style="width: 20px; height: 20px; background: #0d4f0d; border: 1px solid #ccc; margin-right: 8px; border-radius: 3px;"></div>
             <span style="font-size: 13px;"><strong>Boreal Forest</strong><br>
               {{ getActualBiomePercentage('borealForest').toFixed(1) }}% 
-              <span *ngIf="enforceEarthQuotas" style="color: #666;">(Target: {{ getTargetBiomePercentage('borealForest').toFixed(1) }}%) {{ getQuotaStatus('borealForest') }}</span><br>
+              <span style="color: #666; display:block;">
+                (Target: {{ getTargetBiomePercentage('borealForest').toFixed(1) }}% — {{ ((getTargetBiomePercentage('borealForest')/100) * (populationBasedMapSize * populationBasedMapSize)) | number:'1.0-0' }} tiles)
+                <br>
+                <span [style.color]="(getActualBiomeCount('borealForest') - ((getTargetBiomePercentage('borealForest')/100) * (populationBasedMapSize*populationBasedMapSize))) === 0 ? '#666' : (getActualBiomeCount('borealForest') - ((getTargetBiomePercentage('borealForest')/100) * (populationBasedMapSize*populationBasedMapSize)) ) > 0 ? 'red' : 'green'">
+                  Δ: {{ (getActualBiomeCount('borealForest') - ((getTargetBiomePercentage('borealForest')/100) * (populationBasedMapSize*populationBasedMapSize))) | number:'1.0-0' }} tiles
+                </span>
+                {{ getQuotaStatus('borealForest') }}
+              </span>
+              <br>
               ({{ getActualBiomeCount('borealForest').toLocaleString() }} tiles)</span>
           </div>
           <div style="display: flex; align-items: center; padding: 4px;">
             <div style="width: 20px; height: 20px; background: #228B22; border: 1px solid #ccc; margin-right: 8px; border-radius: 3px;"></div>
             <span style="font-size: 13px;"><strong>Temperate Forest</strong><br>
               {{ getActualBiomePercentage('temperateForest').toFixed(1) }}% 
+              <span style="color: #666; display:block;">
+                (Target: {{ getTargetBiomePercentage('temperateForest').toFixed(1) }}% — {{ ((getTargetBiomePercentage('temperateForest')/100) * (populationBasedMapSize * populationBasedMapSize)) | number:'1.0-0' }} tiles)
+                <br>
+                <span [style.color]="(getActualBiomeCount('temperateForest') - ((getTargetBiomePercentage('temperateForest')/100) * (populationBasedMapSize*populationBasedMapSize))) === 0 ? '#666' : (getActualBiomeCount('temperateForest') - ((getTargetBiomePercentage('temperateForest')/100) * (populationBasedMapSize*populationBasedMapSize)) ) > 0 ? 'red' : 'green'">
+                  Δ: {{ (getActualBiomeCount('temperateForest') - ((getTargetBiomePercentage('temperateForest')/100) * (populationBasedMapSize*populationBasedMapSize))) | number:'1.0-0' }} tiles
+                </span>
+              </span>
+              <br>
               ({{ getActualBiomeCount('temperateForest').toLocaleString() }} tiles)</span>
           </div>
           <div style="display: flex; align-items: center; padding: 4px;">
             <div style="width: 20px; height: 20px; background: #32CD32; border: 1px solid #ccc; margin-right: 8px; border-radius: 3px;"></div>
             <span style="font-size: 13px;"><strong>Tropical Rainforest</strong><br>
               {{ getActualBiomePercentage('tropicalRainforest').toFixed(1) }}% 
+              <span style="color: #666; display:block;">
+                (Target: {{ getTargetBiomePercentage('tropicalRainforest').toFixed(1) }}% — {{ ((getTargetBiomePercentage('tropicalRainforest')/100) * (populationBasedMapSize * populationBasedMapSize)) | number:'1.0-0' }} tiles)
+                <br>
+                <span [style.color]="(getActualBiomeCount('tropicalRainforest') - ((getTargetBiomePercentage('tropicalRainforest')/100) * (populationBasedMapSize*populationBasedMapSize))) === 0 ? '#666' : (getActualBiomeCount('tropicalRainforest') - ((getTargetBiomePercentage('tropicalRainforest')/100) * (populationBasedMapSize*populationBasedMapSize)) ) > 0 ? 'red' : 'green'">
+                  Δ: {{ (getActualBiomeCount('tropicalRainforest') - ((getTargetBiomePercentage('tropicalRainforest')/100) * (populationBasedMapSize*populationBasedMapSize))) | number:'1.0-0' }} tiles
+                </span>
+              </span>
+              <br>
               ({{ getActualBiomeCount('tropicalRainforest').toLocaleString() }} tiles)</span>
           </div>
         </div>
@@ -60,18 +100,42 @@
             <div style="width: 20px; height: 20px; background: #90EE90; border: 1px solid #ccc; margin-right: 8px; border-radius: 3px;"></div>
             <span style="font-size: 13px;"><strong>Temperate Grassland</strong><br>
               {{ getActualBiomePercentage('temperateGrassland').toFixed(1) }}% 
+              <span style="color: #666; display:block;">
+                (Target: {{ getTargetBiomePercentage('temperateGrassland').toFixed(1) }}% — {{ ((getTargetBiomePercentage('temperateGrassland')/100) * (populationBasedMapSize * populationBasedMapSize)) | number:'1.0-0' }} tiles)
+                <br>
+                <span [style.color]="(getActualBiomeCount('temperateGrassland') - ((getTargetBiomePercentage('temperateGrassland')/100) * (populationBasedMapSize*populationBasedMapSize))) === 0 ? '#666' : (getActualBiomeCount('temperateGrassland') - ((getTargetBiomePercentage('temperateGrassland')/100) * (populationBasedMapSize*populationBasedMapSize)) ) > 0 ? 'red' : 'green'">
+                  Δ: {{ (getActualBiomeCount('temperateGrassland') - ((getTargetBiomePercentage('temperateGrassland')/100) * (populationBasedMapSize*populationBasedMapSize))) | number:'1.0-0' }} tiles
+                </span>
+              </span>
+              <br>
               ({{ getActualBiomeCount('temperateGrassland').toLocaleString() }} tiles)</span>
           </div>
           <div style="display: flex; align-items: center; padding: 4px;">
             <div style="width: 20px; height: 20px; background: #D2B48C; border: 1px solid #ccc; margin-right: 8px; border-radius: 3px;"></div>
             <span style="font-size: 13px;"><strong>Savanna</strong><br>
               {{ getActualBiomePercentage('savanna').toFixed(1) }}% 
+              <span style="color: #666; display:block;">
+                (Target: {{ getTargetBiomePercentage('savanna').toFixed(1) }}% — {{ ((getTargetBiomePercentage('savanna')/100) * (populationBasedMapSize * populationBasedMapSize)) | number:'1.0-0' }} tiles)
+                <br>
+                <span [style.color]="(getActualBiomeCount('savanna') - ((getTargetBiomePercentage('savanna')/100) * (populationBasedMapSize*populationBasedMapSize))) === 0 ? '#666' : (getActualBiomeCount('savanna') - ((getTargetBiomePercentage('savanna')/100) * (populationBasedMapSize*populationBasedMapSize)) ) > 0 ? 'red' : 'green'">
+                  Δ: {{ (getActualBiomeCount('savanna') - ((getTargetBiomePercentage('savanna')/100) * (populationBasedMapSize*populationBasedMapSize))) | number:'1.0-0' }} tiles
+                </span>
+              </span>
+              <br>
               ({{ getActualBiomeCount('savanna').toLocaleString() }} tiles)</span>
           </div>
           <div style="display: flex; align-items: center; padding: 4px;">
             <div style="width: 20px; height: 20px; background: #9ACD32; border: 1px solid #ccc; margin-right: 8px; border-radius: 3px;"></div>
             <span style="font-size: 13px;"><strong>Scrub & Shrublands</strong><br>
               {{ getActualBiomePercentage('scrub').toFixed(1) }}% 
+              <span style="color: #666; display:block;">
+                (Target: {{ getTargetBiomePercentage('scrub').toFixed(1) }}% — {{ ((getTargetBiomePercentage('scrub')/100) * (populationBasedMapSize * populationBasedMapSize)) | number:'1.0-0' }} tiles)
+                <br>
+                <span [style.color]="(getActualBiomeCount('scrub') - ((getTargetBiomePercentage('scrub')/100) * (populationBasedMapSize*populationBasedMapSize))) === 0 ? '#666' : (getActualBiomeCount('scrub') - ((getTargetBiomePercentage('scrub')/100) * (populationBasedMapSize*populationBasedMapSize)) ) > 0 ? 'red' : 'green'">
+                  Δ: {{ (getActualBiomeCount('scrub') - ((getTargetBiomePercentage('scrub')/100) * (populationBasedMapSize*populationBasedMapSize))) | number:'1.0-0' }} tiles
+                </span>
+              </span>
+              <br>
               ({{ getActualBiomeCount('scrub').toLocaleString() }} tiles)</span>
           </div>
         </div>
@@ -85,19 +149,43 @@
             <div style="width: 20px; height: 20px; background: #D2691E; border: 1px solid #ccc; margin-right: 8px; border-radius: 3px;"></div>
             <span style="font-size: 13px;"><strong>Deserts</strong><br>
               {{ getActualBiomePercentage('deserts').toFixed(1) }}% 
-              <span *ngIf="enforceEarthQuotas" style="color: #666;">(Target: {{ getTargetBiomePercentage('deserts').toFixed(1) }}%) {{ getQuotaStatus('deserts') }}</span><br>
+              <span style="color: #666; display:block;">
+                (Target: {{ getTargetBiomePercentage('deserts').toFixed(1) }}% — {{ ((getTargetBiomePercentage('deserts')/100) * (populationBasedMapSize * populationBasedMapSize)) | number:'1.0-0' }} tiles)
+                <br>
+                <span [style.color]="(getActualBiomeCount('deserts') - ((getTargetBiomePercentage('deserts')/100) * (populationBasedMapSize*populationBasedMapSize))) === 0 ? '#666' : (getActualBiomeCount('deserts') - ((getTargetBiomePercentage('deserts')/100) * (populationBasedMapSize*populationBasedMapSize)) ) > 0 ? 'red' : 'green'">
+                  Δ: {{ (getActualBiomeCount('deserts') - ((getTargetBiomePercentage('deserts')/100) * (populationBasedMapSize*populationBasedMapSize))) | number:'1.0-0' }} tiles
+                </span>
+                {{ getQuotaStatus('deserts') }}
+              </span>
+              <br>
               ({{ getActualBiomeCount('deserts').toLocaleString() }} tiles)</span>
           </div>
           <div style="display: flex; align-items: center; padding: 4px;">
             <div style="width: 20px; height: 20px; background: #A9A9A9; border: 1px solid #ccc; margin-right: 8px; border-radius: 3px;"></div>
             <span style="font-size: 13px;"><strong>Tundra</strong><br>
               {{ getActualBiomePercentage('tundra').toFixed(1) }}% 
+              <span style="color: #666; display:block;">
+                (Target: {{ getTargetBiomePercentage('tundra').toFixed(1) }}% — {{ ((getTargetBiomePercentage('tundra')/100) * (populationBasedMapSize * populationBasedMapSize)) | number:'1.0-0' }} tiles)
+                <br>
+                <span [style.color]="(getActualBiomeCount('tundra') - ((getTargetBiomePercentage('tundra')/100) * (populationBasedMapSize*populationBasedMapSize))) === 0 ? '#666' : (getActualBiomeCount('tundra') - ((getTargetBiomePercentage('tundra')/100) * (populationBasedMapSize*populationBasedMapSize)) ) > 0 ? 'red' : 'green'">
+                  Δ: {{ (getActualBiomeCount('tundra') - ((getTargetBiomePercentage('tundra')/100) * (populationBasedMapSize*populationBasedMapSize))) | number:'1.0-0' }} tiles
+                </span>
+              </span>
+              <br>
               ({{ getActualBiomeCount('tundra').toLocaleString() }} tiles)</span>
           </div>
           <div style="display: flex; align-items: center; padding: 4px;">
             <div style="width: 20px; height: 20px; background: #696969; border: 1px solid #ccc; margin-right: 8px; border-radius: 3px;"></div>
             <span style="font-size: 13px;"><strong>Mountains</strong><br>
               {{ getActualBiomePercentage('mountains').toFixed(1) }}% 
+              <span style="color: #666; display:block;">
+                (Target: {{ getTargetBiomePercentage('mountains').toFixed(1) }}% — {{ ((getTargetBiomePercentage('mountains')/100) * (populationBasedMapSize * populationBasedMapSize)) | number:'1.0-0' }} tiles)
+                <br>
+                <span [style.color]="(getActualBiomeCount('mountains') - ((getTargetBiomePercentage('mountains')/100) * (populationBasedMapSize*populationBasedMapSize))) === 0 ? '#666' : (getActualBiomeCount('mountains') - ((getTargetBiomePercentage('mountains')/100) * (populationBasedMapSize*populationBasedMapSize)) ) > 0 ? 'red' : 'green'">
+                  Δ: {{ (getActualBiomeCount('mountains') - ((getTargetBiomePercentage('mountains')/100) * (populationBasedMapSize*populationBasedMapSize))) | number:'1.0-0' }} tiles
+                </span>
+              </span>
+              <br>
               ({{ getActualBiomeCount('mountains').toLocaleString() }} tiles)</span>
           </div>
         </div>
@@ -111,18 +199,42 @@
             <div style="width: 20px; height: 20px; background: #DAA520; border: 1px solid #ccc; margin-right: 8px; border-radius: 3px;"></div>
             <span style="font-size: 13px;"><strong>Cropland</strong><br>
               {{ getActualBiomePercentage('cropland').toFixed(1) }}% 
+              <span style="color: #666; display:block;">
+                (Target: {{ getTargetBiomePercentage('cropland').toFixed(1) }}% — {{ ((getTargetBiomePercentage('cropland')/100) * (populationBasedMapSize * populationBasedMapSize)) | number:'1.0-0' }} tiles)
+                <br>
+                <span [style.color]="(getActualBiomeCount('cropland') - ((getTargetBiomePercentage('cropland')/100) * (populationBasedMapSize*populationBasedMapSize))) === 0 ? '#666' : (getActualBiomeCount('cropland') - ((getTargetBiomePercentage('cropland')/100) * (populationBasedMapSize*populationBasedMapSize)) ) > 0 ? 'red' : 'green'">
+                  Δ: {{ (getActualBiomeCount('cropland') - ((getTargetBiomePercentage('cropland')/100) * (populationBasedMapSize*populationBasedMapSize))) | number:'1.0-0' }} tiles
+                </span>
+              </span>
+              <br>
               ({{ getActualBiomeCount('cropland').toLocaleString() }} tiles)</span>
           </div>
           <div style="display: flex; align-items: center; padding: 4px;">
             <div style="width: 20px; height: 20px; background: #6B8E23; border: 1px solid #ccc; margin-right: 8px; border-radius: 3px;"></div>
             <span style="font-size: 13px;"><strong>Pastureland</strong><br>
               {{ getActualBiomePercentage('pastureland').toFixed(1) }}% 
+              <span style="color: #666; display:block;">
+                (Target: {{ getTargetBiomePercentage('pastureland').toFixed(1) }}% — {{ ((getTargetBiomePercentage('pastureland')/100) * (populationBasedMapSize * populationBasedMapSize)) | number:'1.0-0' }} tiles)
+                <br>
+                <span [style.color]="(getActualBiomeCount('pastureland') - ((getTargetBiomePercentage('pastureland')/100) * (populationBasedMapSize*populationBasedMapSize))) === 0 ? '#666' : (getActualBiomeCount('pastureland') - ((getTargetBiomePercentage('pastureland')/100) * (populationBasedMapSize*populationBasedMapSize)) ) > 0 ? 'red' : 'green'">
+                  Δ: {{ (getActualBiomeCount('pastureland') - ((getTargetBiomePercentage('pastureland')/100) * (populationBasedMapSize*populationBasedMapSize))) | number:'1.0-0' }} tiles
+                </span>
+              </span>
+              <br>
               ({{ getActualBiomeCount('pastureland').toLocaleString() }} tiles)</span>
           </div>
           <div style="display: flex; align-items: center; padding: 4px;">
             <div style="width: 20px; height: 20px; background: #2F4F4F; border: 1px solid #ccc; margin-right: 8px; border-radius: 3px;"></div>
             <span style="font-size: 13px;"><strong>Urban Areas</strong><br>
               {{ getActualBiomePercentage('urban').toFixed(1) }}% 
+              <span style="color: #666; display:block;">
+                (Target: {{ getTargetBiomePercentage('urban').toFixed(1) }}% — {{ ((getTargetBiomePercentage('urban')/100) * (populationBasedMapSize * populationBasedMapSize)) | number:'1.0-0' }} tiles)
+                <br>
+                <span [style.color]="(getActualBiomeCount('urban') - ((getTargetBiomePercentage('urban')/100) * (populationBasedMapSize*populationBasedMapSize))) === 0 ? '#666' : (getActualBiomeCount('urban') - ((getTargetBiomePercentage('urban')/100) * (populationBasedMapSize*populationBasedMapSize)) ) > 0 ? 'red' : 'green'">
+                  Δ: {{ (getActualBiomeCount('urban') - ((getTargetBiomePercentage('urban')/100) * (populationBasedMapSize*populationBasedMapSize))) | number:'1.0-0' }} tiles
+                </span>
+              </span>
+              <br>
               ({{ getActualBiomeCount('urban').toLocaleString() }} tiles)</span>
           </div>
         </div>
@@ -155,78 +267,22 @@
     </div>
 
     <!-- Terrain Generation Controls -->
-    <div class="terrain-controls" *ngIf="showTerrainControls" style="margin-bottom: 20px; padding: 15px; background: #f1f8ff; border-radius: 8px; border: 2px solid #b3d9ff;">
+    <div class="terrain-controls" style="margin-bottom: 20px; padding: 15px; background: #f1f8ff; border-radius: 8px; border: 2px solid #b3d9ff;">
       <h4 style="margin-top: 0; margin-bottom: 15px; color: #2c5aa0; text-align: center;">🗺️ Natural Terrain Generation</h4>
       
         <div style="display: flex; flex-direction: column; gap: 12px;">
-        <!-- Earth Quota Toggle -->
+        <!-- Earth Quota (always enforced) -->
         <div style="background: white; padding: 12px; border-radius: 4px; border: 1px solid #ddd;">
-          <label style="display: flex; align-items: center; cursor: pointer; font-weight: 600; color: #2c5aa0;">
-            <input 
-              type="checkbox" 
-              [(ngModel)]="enforceEarthQuotas" 
-              (change)="updateMap()" 
-              style="margin-right: 8px; transform: scale(1.2);"
-            />
-            🌍 Enforce Earth-Based Biome Percentages
-          </label>
-          <div style="font-size: 12px; color: #666; margin-top: 4px; margin-left: 24px;">
-            When enabled, maintains exact Earth percentages while preserving natural clustering
+          <div style="font-weight: 600; color: #2c5aa0;">🌍 Enforce Earth-Based Biome Percentages (always on)</div>
+          <div style="font-size: 12px; color: #666; margin-top: 4px;">
+            The map enforces exact Earth percentages and applies clustering to preserve natural appearance.
           </div>
         </div>
 
-        <div style="text-align: center;">
-          <button 
-            (click)="regenerateTerrain()" 
-            style="
-              background: linear-gradient(135deg, #4a90e2, #357abd);
-              color: white;
-              border: none;
-              padding: 12px 24px;
-              border-radius: 6px;
-              font-size: 14px;
-              font-weight: 600;
-              cursor: pointer;
-              box-shadow: 0 3px 8px rgba(0,0,0,0.2);
-              transition: all 0.3s ease;
-            "
-            onmouseover="this.style.transform='translateY(-2px)'; this.style.boxShadow='0 5px 15px rgba(0,0,0,0.3)'"
-            onmouseout="this.style.transform='translateY(0)'; this.style.boxShadow='0 3px 8px rgba(0,0,0,0.2)'"
-          >
-            🎲 Generate New {{ enforceEarthQuotas ? 'Earth-Accurate' : 'Natural' }} Island Layout
-          </button>
-        </div>        <div style="background: white; padding: 10px; border-radius: 4px; border: 1px solid #ddd; font-size: 13px;">
-          <div style="font-weight: 600; margin-bottom: 6px; color: #2c5aa0;">🌿 Enhanced Features:</div>
-          <ul style="margin: 0; padding-left: 18px; line-height: 1.4;">
-            <li><strong>Earth-Based Quotas:</strong> Optional enforcement of exact Earth biome percentages</li>
-            <li><strong>Realistic Biome Clustering:</strong> Natural seed-based biome distribution</li>
-            <li><strong>Elevation-Based Terrain:</strong> Mountains, foothills, and coastal areas</li>
-            <li><strong>Natural Water Systems:</strong> Rivers flowing from mountains to coast</li>
-            <li><strong>Geographic Logic:</strong> Rain shadows, coastal zones, and transition areas</li>
-            <li><strong>Smart Fallbacks:</strong> Maintains natural look when quotas are exceeded</li>
-          </ul>
-          <div style="margin-top: 8px; padding: 6px; background: #f8f9fa; border-radius: 3px; font-size: 12px;">
-            <strong>Mode:</strong> {{ enforceEarthQuotas ? '🌍 Earth-Accurate (exact percentages)' : '🏝️ Natural Clustering (organic distribution)' }}
-          </div>
-        </div>
-        
-        <div style="text-align: center; font-size: 12px; color: #666; font-style: italic;">
-          Current Terrain Seed: {{ terrainSeed.toFixed(0) }}
-        </div>
-      </div>
+       
     </div>
     
-    <!-- Debug Controls -->
-    <div class="debug-controls" style="margin-bottom: 20px; padding: 10px; background: #f5f5f5; border-radius: 5px;">
-      <h4>Debug Tools</h4>
-      <button (click)="updateMap()" style="padding: 8px 16px; margin-right: 10px; background: #007bff; color: white; border: none; border-radius: 4px; cursor: pointer;">
-        🔄 Regenerate Current Terrain
-      </button>
-      <button (click)="regenerateTerrain()" style="padding: 8px 16px; margin-right: 10px; background: #28a745; color: white; border: none; border-radius: 4px; cursor: pointer;">
-        🎲 New Terrain Pattern
-      </button>
-    </div>
-      
+  
     <!-- Population-Based Map Sizing -->
     <div class="population-controls">
       <h4>Population-Based Map Sizing</h4>
@@ -274,87 +330,12 @@
           • <span style="color: #8B4513;">Cropland & Valleys</span> → Brown agricultural and valley terrain<br>
           • <span style="color: #2F4F4F;">Urban Centers</span> → Stone urban development<br><br>
           
-          <strong>Geographic Layout:</strong><br>
-          The terrain shows a tiny island surrounded by vast ocean (accurate Earth proportions):<br>
-          • Massive ocean covers ~80% of the map area (matching real Earth ratios)<br>
-          • Very small island with compressed biomes in realistic proportions<br>
-          • Minimal coastal zones due to small land area<br>
-          • Concentrated agricultural areas in the few fertile valleys<br>
-          • Small forest patches in mid-elevation zones<br>
-          • Compact mountain range in the tiny interior<br>
-          • Scaled-down freshwater system (small lakes and streams)<br>
-          • Tiny urban center represents the limited habitable space<br>
-          • **This is what your fair share of Earth actually looks like!**<br><br>
-          
           <strong>Map Visualization:</strong><br>
           • Each tile: 1m × 1m<br>
           • Map size: {{ populationBasedMapSize }}×{{ populationBasedMapSize }} tiles<br>
           • Represents: {{ (populationBasedMapSize * populationBasedMapSize).toLocaleString() }} m² (1:1 scale)<br>
           • Total Earth surface per person: {{ totalAreaPerPerson.toLocaleString() }} m² (includes oceans, land, everything)<br>
           • Scale: **TRUE 1:1 SCALE** - Each map square meter = 1 real square meter of your Earth share!
-        </small>
-      </div>
-      
-      <!-- Terrain Percentage Verification -->
-      <div class="terrain-comparison" *ngIf="usePopulationSizing && actualTerrainPercentages.stone > 0">
-        <h5 style="margin-top: 20px; color: #ff6b35;">Map Accuracy Verification</h5>
-        <small>
-          <strong>Actual vs Expected Terrain Distribution:</strong><br>
-          <table style="width: 100%; border-collapse: collapse; margin-top: 10px;">
-            <tr style="background-color: #f0f0f0;">
-              <th style="padding: 5px; border: 1px solid #ccc; text-align: left;">Terrain Type</th>
-              <th style="padding: 5px; border: 1px solid #ccc; text-align: center;">Actual %</th>
-              <th style="padding: 5px; border: 1px solid #ccc; text-align: center;">Expected %</th>
-              <th style="padding: 5px; border: 1px solid #ccc; text-align: center;">Difference</th>
-            </tr>
-            <tr>
-              <td style="padding: 5px; border: 1px solid #ccc;"><span style="color: #696969;">Stone (Mountains/Urban)</span></td>
-              <td style="padding: 5px; border: 1px solid #ccc; text-align: center;">{{ actualTerrainPercentages.stone }}%</td>
-              <td style="padding: 5px; border: 1px solid #ccc; text-align: center;">{{ expectedTerrainPercentages.stone }}%</td>
-              <td style="padding: 5px; border: 1px solid #ccc; text-align: center;" 
-                  [style.color]="getAbsDifference(actualTerrainPercentages.stone, expectedTerrainPercentages.stone) > 2 ? 'red' : 'green'">
-                {{ (actualTerrainPercentages.stone - expectedTerrainPercentages.stone).toFixed(1) }}%
-              </td>
-            </tr>
-            <tr>
-              <td style="padding: 5px; border: 1px solid #ccc;"><span style="color: #8B4513;">Dirt (Cropland/Scrub)</span></td>
-              <td style="padding: 5px; border: 1px solid #ccc; text-align: center;">{{ actualTerrainPercentages.dirt }}%</td>
-              <td style="padding: 5px; border: 1px solid #ccc; text-align: center;">{{ expectedTerrainPercentages.dirt }}%</td>
-              <td style="padding: 5px; border: 1px solid #ccc; text-align: center;" 
-                  [style.color]="getAbsDifference(actualTerrainPercentages.dirt, expectedTerrainPercentages.dirt) > 2 ? 'red' : 'green'">
-                {{ (actualTerrainPercentages.dirt - expectedTerrainPercentages.dirt).toFixed(1) }}%
-              </td>
-            </tr>
-            <tr>
-              <td style="padding: 5px; border: 1px solid #ccc;"><span style="color: #4682B4;">Water (Oceans/Lakes)</span></td>
-              <td style="padding: 5px; border: 1px solid #ccc; text-align: center;">{{ actualTerrainPercentages.dirt2 }}%</td>
-              <td style="padding: 5px; border: 1px solid #ccc; text-align: center;">{{ expectedTerrainPercentages.dirt2 }}%</td>
-              <td style="padding: 5px; border: 1px solid #ccc; text-align: center;" 
-                  [style.color]="getAbsDifference(actualTerrainPercentages.dirt2, expectedTerrainPercentages.dirt2) > 2 ? 'red' : 'green'">
-                {{ (actualTerrainPercentages.dirt2 - expectedTerrainPercentages.dirt2).toFixed(1) }}%
-              </td>
-            </tr>
-            <tr>
-              <td style="padding: 5px; border: 1px solid #ccc;"><span style="color: #D2691E;">Sand (Deserts)</span></td>
-              <td style="padding: 5px; border: 1px solid #ccc; text-align: center;">{{ actualTerrainPercentages.sand }}%</td>
-              <td style="padding: 5px; border: 1px solid #ccc; text-align: center;">{{ expectedTerrainPercentages.sand }}%</td>
-              <td style="padding: 5px; border: 1px solid #ccc; text-align: center;" 
-                  [style.color]="getAbsDifference(actualTerrainPercentages.sand, expectedTerrainPercentages.sand) > 2 ? 'red' : 'green'">
-                {{ (actualTerrainPercentages.sand - expectedTerrainPercentages.sand).toFixed(1) }}%
-              </td>
-            </tr>
-            <tr>
-              <td style="padding: 5px; border: 1px solid #ccc;"><span style="color: #228B22;">Grass (Forests/Grasslands)</span></td>
-              <td style="padding: 5px; border: 1px solid #ccc; text-align: center;">{{ actualTerrainPercentages.grass }}%</td>
-              <td style="padding: 5px; border: 1px solid #ccc; text-align: center;">{{ expectedTerrainPercentages.grass }}%</td>
-              <td style="padding: 5px; border: 1px solid #ccc; text-align: center;" 
-                  [style.color]="getAbsDifference(actualTerrainPercentages.grass, expectedTerrainPercentages.grass) > 2 ? 'red' : 'green'">
-                {{ (actualTerrainPercentages.grass - expectedTerrainPercentages.grass).toFixed(1) }}%
-              </td>
-            </tr>
-          </table>
-          <br>
-          <em>Green = Good match (within 2%), Red = Significant difference (>2%)</em>
         </small>
       </div>
     </div>
