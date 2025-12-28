@@ -6,6 +6,160 @@ import * as THREE from 'three';
 import { RGBELoader } from 'three/examples/jsm/loaders/RGBELoader.js';
 import { OrbitControls } from 'three/examples/jsm/controls/OrbitControls.js';
 import * as BufferGeometryUtils from 'three/examples/jsm/utils/BufferGeometryUtils.js';
+import { RoundedBoxGeometry } from 'three/examples/jsm/geometries/RoundedBoxGeometry.js';
+
+// SDF (Signed Distance Field) Shader for seamless rounded biome tiles
+const sdfVertexShader = `
+  varying vec3 vPosition;
+  varying vec3 vNormal;
+  varying vec2 vUv;
+  
+  void main() {
+    vPosition = position;
+    vNormal = normalize(normalMatrix * normal);
+    vUv = uv;
+    gl_Position = projectionMatrix * modelViewMatrix * vec4(position, 1.0);
+  }
+`;
+
+const sdfFragmentShader = `
+  uniform sampler2D map;
+  uniform vec3 color;
+  uniform float roughness;
+  uniform float metalness;
+  uniform sampler2D envMap;
+  uniform float envMapIntensity;
+  uniform float cornerRadius;
+  
+  varying vec3 vPosition;
+  varying vec3 vNormal;
+  varying vec2 vUv;
+  
+  // SDF for rounded box
+  float sdRoundBox(vec3 p, vec3 b, float r) {
+    vec3 q = abs(p) - b + r;
+    return length(max(q, 0.0)) + min(max(q.x, max(q.y, q.z)), 0.0) - r;
+  }
+  
+  void main() {
+    // Box dimensions (half-extents)
+    vec3 boxSize = vec3(0.5, 0.5, 0.5);
+    
+    // Calculate SDF distance
+    float dist = sdRoundBox(vPosition, boxSize, cornerRadius);
+    
+    // Discard fragments outside the rounded box
+    if (dist > 0.01) {
+      discard;
+    }
+    
+    // Smooth alpha based on distance for anti-aliasing
+    float alpha = 1.0 - smoothstep(-0.01, 0.01, dist);
+    
+    // Sample texture
+    vec4 texColor = texture2D(map, vUv);
+    
+    // Apply color tint
+    vec3 finalColor = texColor.rgb * color;
+    
+    // Simple Phong-like lighting
+    vec3 lightDir = normalize(vec3(1.0, 1.0, 1.0));
+    float diff = max(dot(vNormal, lightDir), 0.0);
+    
+    finalColor = finalColor * (0.3 + 0.7 * diff);
+    
+    gl_FragColor = vec4(finalColor, alpha * texColor.a);
+  }
+`;
+
+// Alternative: Instanced SDF shader with per-instance biome data
+const sdfInstancedVertexShader = `
+  varying vec3 vPosition;
+  varying vec3 vNormal;
+  varying vec2 vUv;
+  varying vec3 vWorldPosition;
+  
+  void main() {
+    vPosition = position;
+    vNormal = normalize(normalMatrix * normal);
+    vUv = uv;
+    
+    vec4 worldPosition = modelMatrix * instanceMatrix * vec4(position, 1.0);
+    vWorldPosition = worldPosition.xyz;
+    
+    gl_Position = projectionMatrix * viewMatrix * worldPosition;
+  }
+`;
+
+const sdfInstancedFragmentShader = `
+  uniform sampler2D map;
+  uniform vec3 baseColor;
+  uniform float cornerRadius;
+  uniform float envMapIntensity;
+  
+  varying vec3 vPosition;
+  varying vec3 vNormal;
+  varying vec2 vUv;
+  varying vec3 vWorldPosition;
+  
+  // SDF for rounded box - returns distance to surface
+  float sdRoundBox(vec3 p, vec3 b, float r) {
+    vec3 q = abs(p) - b + r;
+    return length(max(q, 0.0)) + min(max(q.x, max(q.y, q.z)), 0.0) - r;
+  }
+  
+  // Calculate smooth normal from SDF
+  vec3 calcNormal(vec3 p, vec3 boxSize, float r) {
+    const vec2 e = vec2(0.005, 0.0);
+    return normalize(vec3(
+      sdRoundBox(p + e.xyy, boxSize, r) - sdRoundBox(p - e.xyy, boxSize, r),
+      sdRoundBox(p + e.yxy, boxSize, r) - sdRoundBox(p - e.yxy, boxSize, r),
+      sdRoundBox(p + e.yyx, boxSize, r) - sdRoundBox(p - e.yyx, boxSize, r)
+    ));
+  }
+  
+  void main() {
+    // Box dimensions (half-extents) - slightly smaller to create rounded effect
+    vec3 boxSize = vec3(0.5, 0.5, 0.5);
+    
+    // Calculate SDF distance at this fragment
+    float dist = sdRoundBox(vPosition, boxSize, cornerRadius);
+    
+    // More lenient discard threshold - only discard far outside
+    if (dist > 0.1) {
+      discard;
+    }
+    
+    // Sample texture first
+    vec4 texColor = texture2D(map, vUv);
+    
+    // Apply base color tint
+    vec3 finalColor = texColor.rgb * baseColor;
+    
+    // Calculate smooth normal based on SDF only near edges
+    vec3 smoothNormal = vNormal;
+    if (dist > -0.05 && cornerRadius > 0.01) {
+      smoothNormal = mix(vNormal, calcNormal(vPosition, boxSize, cornerRadius), 0.8);
+    }
+    
+    // Enhanced lighting with smooth normals
+    vec3 lightDir = normalize(vec3(1.0, 2.0, 1.0));
+    float diff = max(dot(smoothNormal, lightDir), 0.0);
+    
+    // Ambient + diffuse lighting
+    vec3 ambient = finalColor * 0.4;
+    vec3 diffuse = finalColor * diff * 0.6;
+    finalColor = ambient + diffuse;
+    
+    // Smooth alpha for anti-aliasing at edges only
+    float alpha = 1.0;
+    if (dist > 0.0) {
+      alpha = 1.0 - smoothstep(0.0, 0.05, dist);
+    }
+    
+    gl_FragColor = vec4(finalColor, alpha * texColor.a);
+  }
+`;
 
 // Define comprehensive terrain types based on Earth's biomes
 export type TerrainType = 
@@ -75,7 +229,13 @@ export class SquareMapComponent implements AfterViewInit {
   renderer!: THREE.WebGLRenderer;
   light!: THREE.DirectionalLight;
 
-  // Instanced meshes (one per visual terrain type)
+  // Hover functionality
+  raycaster = new THREE.Raycaster();
+  mouse = new THREE.Vector2();
+  hoveredTileInfo: { biome: string; x: number; z: number } | null = null;
+  highlightMesh!: THREE.Mesh;
+
+  // Instanced meshes (one per visual terrain type) - interior tiles
   mountainsMesh!: THREE.InstancedMesh;
   tundraMesh!: THREE.InstancedMesh;
   urbanMesh!: THREE.InstancedMesh;
@@ -90,6 +250,20 @@ export class SquareMapComponent implements AfterViewInit {
   desertsMesh!: THREE.InstancedMesh;
   saltwaterMesh!: THREE.InstancedMesh;
   freshwaterMesh!: THREE.InstancedMesh;
+  
+  // Perimeter meshes (rounded edges) - one per visual terrain type
+  mountainsPerimeterMesh!: THREE.InstancedMesh;
+  tundraPerimeterMesh!: THREE.InstancedMesh;
+  urbanPerimeterMesh!: THREE.InstancedMesh;
+  borealForestPerimeterMesh!: THREE.InstancedMesh;
+  temperateForestPerimeterMesh!: THREE.InstancedMesh;
+  tropicalRainforestPerimeterMesh!: THREE.InstancedMesh;
+  croplandPerimeterMesh!: THREE.InstancedMesh;
+  scrubPerimeterMesh!: THREE.InstancedMesh;
+  temperateGrasslandPerimeterMesh!: THREE.InstancedMesh;
+  pasturelandPerimeterMesh!: THREE.InstancedMesh;
+  savannaPerimeterMesh!: THREE.InstancedMesh;
+  desertsPerimeterMesh!: THREE.InstancedMesh;
 
   // State and configuration
   isUpdating = false;
@@ -98,6 +272,9 @@ export class SquareMapComponent implements AfterViewInit {
   usePopulationSizing = true;
   selectedYear = new Date().getFullYear();
   terrainSeed = Math.random() * 10000;
+  
+  // SDF configuration for rounded edges
+  cornerRadius = 0.08; // 0.0 = sharp corners, 0.15 = very rounded
 
   // Quotas and counts
   remainingQuotas: Record<TerrainType, number> = {} as any;
@@ -506,42 +683,101 @@ export class SquareMapComponent implements AfterViewInit {
     const islandZ = z / islandRadius;  // Normalize to island scale
     const islandDistance = Math.sqrt(islandX * islandX + islandZ * islandZ);
     
-    // Single consolidated cluster per biome type for maximum visibility
-    // Each biome gets ONE primary location with large radius for clear identification
-    const biomeSeeds = [
-      // Major biomes positioned strategically around the island with large consolidated areas
-      { x: 0, z: -0.35, biome: 'borealForest', radius: 0.45 },       // North - large boreal forest region
-      { x: 0.4, z: -0.2, biome: 'temperateForest', radius: 0.4 },    // Northeast - consolidated temperate forest
-      { x: -0.4, z: 0, biome: 'deserts', radius: 0.4 },              // West - large desert region
-      { x: 0, z: 0.4, biome: 'tropicalRainforest', radius: 0.45 },   // South - major rainforest area
-      { x: 0.4, z: 0.15, biome: 'temperateGrassland', radius: 0.35 }, // East - grassland plains
-      { x: -0.2, z: 0.35, biome: 'savanna', radius: 0.3 },           // Southwest - savanna region
-      { x: 0, z: 0, biome: 'mountains', radius: 0.25 },              // Center - mountain range
-      { x: -0.3, z: -0.3, biome: 'tundra', radius: 0.3 },           // Northwest - tundra region
-      { x: 0.25, z: 0, biome: 'scrub', radius: 0.25 },              // Central-east - scrubland
-      { x: -0.1, z: -0.1, biome: 'freshwater', radius: 0.2 },       // Near center - lake region
-      // Human use biomes consolidated into distinct zones
-      { x: 0.15, z: -0.15, biome: 'urban', radius: 0.2 },           // Northeast urban center
-      { x: -0.15, z: 0.2, biome: 'cropland', radius: 0.25 },        // West-central agricultural zone
-      { x: 0.2, z: 0.3, biome: 'pastureland', radius: 0.22 },       // Southeast grazing lands
+    // Consolidated group seeds: group similar biomes into single contiguous blocks.
+    // Each seed represents a group; when a group is chosen we deterministically pick
+    // one member of the group based on latitude (islandZ) and elevation so similar
+    // biomes appear together as one block but still keep some geographic realism.
+    const groupSeeds: Array<{ x: number, z: number, radius: number, group: string, members: TerrainType[] }> = [
+      // Forest block (north-to-south within block will vary between boreal -> temperate -> tropical)
+      { x: 0, z: -0.25, radius: 0.5, group: 'forests', members: ['borealForest', 'temperateForest', 'tropicalRainforest'] },
+      // Grasslands/agricultural block (mix of grass, savanna and pasture)
+      { x: 0.35, z: 0.1, radius: 0.45, group: 'grasslands', members: ['temperateGrassland', 'savanna', 'pastureland'] },
+      // Desert block (kept as single, large desert area)
+      { x: -0.4, z: 0, radius: 0.45, group: 'deserts', members: ['deserts'] },
+      // Rainforest block (southern wet block, but kept inside forest group fallback if needed)
+      { x: 0, z: 0.4, radius: 0.45, group: 'rainforest', members: ['tropicalRainforest'] },
+      // Mountains (central spine)
+      { x: 0, z: 0, radius: 0.25, group: 'mountains', members: ['mountains'] },
+      // Tundra (cold northern fringe)
+      { x: -0.25, z: -0.35, radius: 0.3, group: 'tundra', members: ['tundra'] },
+      // Scrub/transition areas
+      { x: 0.25, z: 0, radius: 0.25, group: 'scrub', members: ['scrub'] },
+      // Freshwater (lake cluster near center)
+      { x: -0.1, z: -0.1, radius: 0.2, group: 'freshwater', members: ['freshwater'] },
+      // Human use clusters (agriculture and urban consolidated)
+      { x: -0.15, z: 0.2, radius: 0.28, group: 'agriculture', members: ['cropland', 'pastureland', 'urban'] },
     ];
-    
-    // Find the closest biome seed within island coordinates - CLEAN distinct clusters only
-    let closestBiome: TerrainType = 'scrub';
-    let minDistance = Infinity;
-    
-    // Pure clustering - find closest biome seed with NO noise or variation
-    for (const seed of biomeSeeds) {
+
+    // Find closest group seed
+    let chosenGroup = groupSeeds[0];
+    let minDistanceToSeed = Infinity;
+    for (const seed of groupSeeds) {
       const seedDistance = Math.sqrt((islandX - seed.x) ** 2 + (islandZ - seed.z) ** 2);
-      const influenceRadius = seed.radius; // Clean radius with no modifications
-      
-      if (seedDistance < influenceRadius && seedDistance < minDistance) {
-        minDistance = seedDistance;
-        closestBiome = seed.biome as TerrainType;
+      if (seedDistance < seed.radius && seedDistance < minDistanceToSeed) {
+        minDistanceToSeed = seedDistance;
+        chosenGroup = seed;
       }
     }
-    
-    return closestBiome;
+
+    // Deterministic selection within a chosen group to keep similar biomes contiguous
+    const group = chosenGroup.group;
+
+    // Helper: seeded selector to choose among members when needed
+    const pickBySeed = (members: TerrainType[]) => {
+      const r = Math.floor(this.seededRandom(x, z, 500 + Math.floor(elevation * 1000)) * members.length);
+      return members[Math.max(0, Math.min(members.length - 1, r))];
+    };
+
+    if (group === 'forests') {
+      // latitude-driven inside the forest block: north -> boreal, center -> temperate, south -> tropical
+      if (islandZ < -0.15) return 'borealForest';
+      if (islandZ > 0.15) return 'tropicalRainforest';
+      return 'temperateForest';
+    }
+
+    if (group === 'rainforest') {
+      return 'tropicalRainforest';
+    }
+
+    if (group === 'grasslands') {
+      // Elevation and latitude influence: higher elevation -> pasture, southern -> savanna, otherwise temperate grassland
+      if (elevation > 0.55) return 'pastureland';
+      if (islandZ > 0.15) return 'savanna';
+      return 'temperateGrassland';
+    }
+
+    if (group === 'deserts') {
+      return 'deserts';
+    }
+
+    if (group === 'mountains') {
+      return 'mountains';
+    }
+
+    if (group === 'tundra') {
+      return 'tundra';
+    }
+
+    if (group === 'scrub') {
+      return 'scrub';
+    }
+
+    if (group === 'freshwater') {
+      return 'freshwater';
+    }
+
+    if (group === 'agriculture') {
+      // Prefer cropland in low elevation and near center, pasture on rolling terrain, urban as small pockets
+      if (elevation < 0.25 && Math.abs(islandX) < 0.3) return 'cropland';
+      if (elevation > 0.45) return 'pastureland';
+      // Use seeded choice to place occasional urban tiles
+      const roll = this.seededRandom(x, z, 900);
+      if (roll < 0.12) return 'urban';
+      return pickBySeed(['cropland', 'pastureland']);
+    }
+
+    // Fallback: pick one of the group's members deterministically
+    return pickBySeed(chosenGroup.members);
   }
 
   // Method to determine terrain type with pre-calculated natural island shape
@@ -789,7 +1025,7 @@ export class SquareMapComponent implements AfterViewInit {
     this.camera.position.set(180, 200, 180); // Elevated angle to see the island's topography
     console.log('Camera positioned at:', this.camera.position);
 
-    this.renderer = new THREE.WebGLRenderer({ antialias: true });
+    this.renderer = new THREE.WebGLRenderer({ antialias: true, logarithmicDepthBuffer: true });
     this.renderer.setSize(availableWidth, availableHeight);
     this.renderer.toneMapping = THREE.ACESFilmicToneMapping
     this.renderer.shadowMap.enabled = true;
@@ -821,6 +1057,18 @@ export class SquareMapComponent implements AfterViewInit {
     // Prevent viewing the bottom of the map
     controls.maxPolarAngle = Math.PI / 2; // Limit to horizontal view (90 degrees max)
 
+    // Create highlight mesh for hover effect with rounded corners
+    const highlightGeometry = new RoundedBoxGeometry(1.1, 2, 1.1, 4, 0);
+    const highlightMaterial = new THREE.MeshBasicMaterial({
+      color: 0xffff00,
+      transparent: true,
+      opacity: 0.4,
+      side: THREE.DoubleSide
+    });
+    this.highlightMesh = new THREE.Mesh(highlightGeometry, highlightMaterial);
+    this.highlightMesh.visible = false;
+    this.scene.add(this.highlightMesh);
+
     this.renderer.setAnimationLoop(() => {
       controls.update();
       this.renderer.render(this.scene, this.camera);
@@ -828,6 +1076,9 @@ export class SquareMapComponent implements AfterViewInit {
 
     // Add window resize handler
     window.addEventListener('resize', () => this.onWindowResize());
+
+    // Add mouse move handler for hover detection
+    this.renderer.domElement.addEventListener('mousemove', (event) => this.onMouseMove(event));
   }
 
   onWindowResize(): void {
@@ -842,6 +1093,306 @@ export class SquareMapComponent implements AfterViewInit {
     this.camera.aspect = availableWidth / availableHeight;
     this.camera.updateProjectionMatrix();
     this.renderer.setSize(availableWidth, availableHeight);
+  }
+
+  // Create a shader material with vertex-based beveling for selective edge rounding
+  createBeveledMaterial(
+    textureMap: THREE.Texture, 
+    materialColor: number, 
+    envMap: THREE.Texture,
+    bevelRadius: number
+  ): THREE.ShaderMaterial {
+    return new THREE.ShaderMaterial({
+      uniforms: {
+        map: { value: textureMap },
+        envMap: { value: envMap },
+        envMapIntensity: { value: 0.135 },
+        color: { value: new THREE.Color(materialColor) },
+        bevelRadius: { value: bevelRadius }
+      },
+      vertexShader: `
+        attribute vec4 edgeRounding; // (roundNorth, roundSouth, roundEast, roundWest)
+        
+        varying vec2 vUv;
+        varying vec3 vNormal;
+        varying vec3 vWorldPosition;
+        varying vec4 vEdgeRounding;
+        
+        uniform float bevelRadius;
+        
+        void main() {
+          vUv = uv;
+          vEdgeRounding = edgeRounding;
+          
+          // Get position - DON'T modify it to avoid gaps
+          vec3 pos = position;
+          
+          // Modify normal for beveled edges to create smooth visual transition
+          vec3 modifiedNormal = normal;
+          
+          // Calculate if vertex is on an edge
+          float threshold = 0.49;
+          bool onNorthEdge = pos.z < -threshold;
+          bool onSouthEdge = pos.z > threshold;
+          bool onEastEdge = pos.x > threshold;
+          bool onWestEdge = pos.x < -threshold;
+          bool onTopFace = abs(normal.y) > 0.9; // Top face
+          
+          // Strong normal blending for visible rounded appearance
+          float normalBlend = 0.85; // Much stronger blending
+          
+          // Apply normal smoothing to create rounded appearance through lighting
+          if (onTopFace) {
+            // Top face edge smoothing
+            if (edgeRounding.x > 0.5 && onNorthEdge) { // roundNorth
+              modifiedNormal = mix(modifiedNormal, normalize(vec3(0.0, 0.7, -0.7)), normalBlend);
+            }
+            if (edgeRounding.y > 0.5 && onSouthEdge) { // roundSouth
+              modifiedNormal = mix(modifiedNormal, normalize(vec3(0.0, 0.7, 0.7)), normalBlend);
+            }
+            if (edgeRounding.z > 0.5 && onEastEdge) { // roundEast
+              modifiedNormal = mix(modifiedNormal, normalize(vec3(0.7, 0.7, 0.0)), normalBlend);
+            }
+            if (edgeRounding.w > 0.5 && onWestEdge) { // roundWest
+              modifiedNormal = mix(modifiedNormal, normalize(vec3(-0.7, 0.7, 0.0)), normalBlend);
+            }
+            
+            // Smooth corners even more for rounded appearance
+            if (edgeRounding.x > 0.5 && edgeRounding.w > 0.5 && onNorthEdge && onWestEdge) {
+              modifiedNormal = normalize(vec3(-0.5, 0.7, -0.5));
+            }
+            if (edgeRounding.x > 0.5 && edgeRounding.z > 0.5 && onNorthEdge && onEastEdge) {
+              modifiedNormal = normalize(vec3(0.5, 0.7, -0.5));
+            }
+            if (edgeRounding.y > 0.5 && edgeRounding.w > 0.5 && onSouthEdge && onWestEdge) {
+              modifiedNormal = normalize(vec3(-0.5, 0.7, 0.5));
+            }
+            if (edgeRounding.y > 0.5 && edgeRounding.z > 0.5 && onSouthEdge && onEastEdge) {
+              modifiedNormal = normalize(vec3(0.5, 0.7, 0.5));
+            }
+          } else {
+            // Side faces - blend towards outward direction for smooth transition
+            float sideBlend = 0.7;
+            if (edgeRounding.x > 0.5 && onNorthEdge) {
+              modifiedNormal = mix(modifiedNormal, normalize(vec3(0.0, 0.3, -1.0)), sideBlend);
+            }
+            if (edgeRounding.y > 0.5 && onSouthEdge) {
+              modifiedNormal = mix(modifiedNormal, normalize(vec3(0.0, 0.3, 1.0)), sideBlend);
+            }
+            if (edgeRounding.z > 0.5 && onEastEdge) {
+              modifiedNormal = mix(modifiedNormal, normalize(vec3(1.0, 0.3, 0.0)), sideBlend);
+            }
+            if (edgeRounding.w > 0.5 && onWestEdge) {
+              modifiedNormal = mix(modifiedNormal, normalize(vec3(-1.0, 0.3, 0.0)), sideBlend);
+            }
+          }
+          
+          vNormal = normalize(normalMatrix * modifiedNormal);
+          
+          vec4 worldPosition = modelMatrix * vec4(pos, 1.0);
+          vWorldPosition = worldPosition.xyz;
+          
+          gl_Position = projectionMatrix * viewMatrix * worldPosition;
+        }
+      `,
+      fragmentShader: `
+        uniform sampler2D map;
+        uniform samplerCube envMap;
+        uniform vec3 color;
+        uniform float envMapIntensity;
+        
+        varying vec2 vUv;
+        varying vec3 vNormal;
+        varying vec3 vWorldPosition;
+        varying vec4 vEdgeRounding;
+        
+        void main() {
+          vec4 texColor = texture2D(map, vUv);
+          
+          // Enhanced lighting with multiple light sources
+          vec3 normal = normalize(vNormal);
+          
+          // Main directional light (sun-like)
+          vec3 mainLightDir = normalize(vec3(0.5, 1.5, 0.8));
+          float mainDiffuse = max(dot(normal, mainLightDir), 0.0);
+          
+          // Fill light (softer, from opposite side)
+          vec3 fillLightDir = normalize(vec3(-0.3, 0.5, -0.4));
+          float fillDiffuse = max(dot(normal, fillLightDir), 0.0) * 0.3;
+          
+          // Rim light (from above-behind for edge definition)
+          vec3 rimLightDir = normalize(vec3(0.0, 1.0, -0.5));
+          float rimDiffuse = max(dot(normal, rimLightDir), 0.0) * 0.2;
+          
+          // Combine lighting
+          float totalDiffuse = mainDiffuse + fillDiffuse + rimDiffuse;
+          float ambient = 0.4; // Base ambient light
+          float lighting = ambient + totalDiffuse * 0.8;
+          lighting = clamp(lighting, 0.0, 1.2); // Allow slight overbright
+          
+          // Sample environment map for reflections
+          vec3 viewDir = normalize(cameraPosition - vWorldPosition);
+          vec3 reflectDir = reflect(-viewDir, normal);
+          vec4 envColor = textureCube(envMap, reflectDir);
+          
+          // Combine texture, color, lighting, and environment reflection
+          vec3 finalColor = texColor.rgb * color * lighting;
+          finalColor = mix(finalColor, envColor.rgb, envMapIntensity * 0.2);
+          
+          gl_FragColor = vec4(finalColor, 1.0);
+        }
+      `,
+      lights: false,
+      side: THREE.FrontSide
+    });
+  }
+
+  // Create a shader material for water with transparency
+  createWaterMaterial(
+    textureMap: THREE.Texture, 
+    materialColor: number, 
+    envMap: THREE.Texture,
+    opacity: number
+  ): THREE.ShaderMaterial {
+    return new THREE.ShaderMaterial({
+      uniforms: {
+        map: { value: textureMap },
+        envMap: { value: envMap },
+        envMapIntensity: { value: 0.3 },
+        color: { value: new THREE.Color(materialColor) },
+        opacity: { value: opacity }
+      },
+      vertexShader: `
+        varying vec2 vUv;
+        varying vec3 vNormal;
+        varying vec3 vWorldPosition;
+        
+        void main() {
+          vUv = uv;
+          vNormal = normalize(normalMatrix * normal);
+          
+          vec4 worldPosition = modelMatrix * vec4(position, 1.0);
+          vWorldPosition = worldPosition.xyz;
+          
+          gl_Position = projectionMatrix * viewMatrix * worldPosition;
+        }
+      `,
+      fragmentShader: `
+        uniform sampler2D map;
+        uniform samplerCube envMap;
+        uniform vec3 color;
+        uniform float envMapIntensity;
+        uniform float opacity;
+        
+        varying vec2 vUv;
+        varying vec3 vNormal;
+        varying vec3 vWorldPosition;
+        
+        void main() {
+          vec4 texColor = texture2D(map, vUv);
+          
+          // Enhanced lighting with multiple light sources (same as land)
+          vec3 normal = normalize(vNormal);
+          
+          // Main directional light (sun-like)
+          vec3 mainLightDir = normalize(vec3(0.5, 1.5, 0.8));
+          float mainDiffuse = max(dot(normal, mainLightDir), 0.0);
+          
+          // Fill light (softer, from opposite side)
+          vec3 fillLightDir = normalize(vec3(-0.3, 0.5, -0.4));
+          float fillDiffuse = max(dot(normal, fillLightDir), 0.0) * 0.3;
+          
+          // Rim light (from above-behind for edge definition)
+          vec3 rimLightDir = normalize(vec3(0.0, 1.0, -0.5));
+          float rimDiffuse = max(dot(normal, rimLightDir), 0.0) * 0.2;
+          
+          // Combine lighting
+          float totalDiffuse = mainDiffuse + fillDiffuse + rimDiffuse;
+          float ambient = 0.5; // Slightly higher ambient for water
+          float lighting = ambient + totalDiffuse * 0.7;
+          lighting = clamp(lighting, 0.0, 1.2);
+          
+          // Sample environment map for reflections (stronger for water)
+          vec3 viewDir = normalize(cameraPosition - vWorldPosition);
+          vec3 reflectDir = reflect(-viewDir, normal);
+          vec4 envColor = textureCube(envMap, reflectDir);
+          
+          // Combine texture, color, lighting, and environment reflection
+          vec3 finalColor = texColor.rgb * color * lighting;
+          finalColor = mix(finalColor, envColor.rgb, envMapIntensity * 0.5); // Stronger reflection for water
+          
+          gl_FragColor = vec4(finalColor, opacity);
+        }
+      `,
+      transparent: true,
+      lights: false,
+      side: THREE.FrontSide,
+      depthWrite: true
+    });
+  }
+
+  onMouseMove(event: MouseEvent): void {
+    // Calculate mouse position in normalized device coordinates (-1 to +1)
+    const rect = this.renderer.domElement.getBoundingClientRect();
+    this.mouse.x = ((event.clientX - rect.left) / rect.width) * 2 - 1;
+    this.mouse.y = -((event.clientY - rect.top) / rect.height) * 2 + 1;
+
+    // Update the raycaster with the camera and mouse position
+    this.raycaster.setFromCamera(this.mouse, this.camera);
+
+    // Calculate objects intersecting the ray (use scene children since we're using merged meshes now)
+    const intersects = this.raycaster.intersectObjects(this.scene.children, true);
+
+    if (intersects.length > 0) {
+      const intersect = intersects[0];
+      const mesh = intersect.object as THREE.Mesh;
+      
+      // Get the position from the intersection point
+      const x = Math.round(intersect.point.x);
+      const z = Math.round(intersect.point.z);
+
+      // Get biome type from the mesh's stored terrainType property
+      const terrainType = (mesh as any).terrainType as VisualTerrainType;
+      
+      let biomeType = '';
+      if (terrainType) {
+        // Convert terrain type to display name
+        switch (terrainType) {
+          case 'mountains': biomeType = 'Mountains'; break;
+          case 'tundra': biomeType = 'Tundra'; break;
+          case 'urban': biomeType = 'Urban'; break;
+          case 'borealForest': biomeType = 'Boreal Forest'; break;
+          case 'temperateForest': biomeType = 'Temperate Forest'; break;
+          case 'tropicalRainforest': biomeType = 'Tropical Rainforest'; break;
+          case 'cropland': biomeType = 'Cropland'; break;
+          case 'scrub': biomeType = 'Scrub'; break;
+          case 'temperateGrassland': biomeType = 'Temperate Grassland'; break;
+          case 'pastureland': biomeType = 'Pastureland'; break;
+          case 'savanna': biomeType = 'Savanna'; break;
+          case 'deserts': biomeType = 'Deserts'; break;
+          case 'saltwater': biomeType = 'Saltwater (Ocean)'; break;
+          case 'freshwater': biomeType = 'Freshwater (Lake/River)'; break;
+        }
+      }
+
+      this.hoveredTileInfo = { biome: biomeType, x, z };
+
+      // Position and show highlight mesh
+      if (this.highlightMesh) {
+        // Use the intersection point's Y coordinate as height
+        const height = Math.max(0.1, intersect.point.y);
+        
+        // Position at center of the tile's height
+        this.highlightMesh.position.set(x, height * 0.5, z);
+        this.highlightMesh.scale.set(1, height, 1);
+        this.highlightMesh.visible = true;
+      }
+    } else {
+      this.hoveredTileInfo = null;
+      if (this.highlightMesh) {
+        this.highlightMesh.visible = false;
+      }
+    }
   }
 
   async updateMap(): Promise<void> {
@@ -888,9 +1439,24 @@ export class SquareMapComponent implements AfterViewInit {
       textures.freshwater.wrapS = textures.freshwater.wrapT = THREE.RepeatWrapping;
       textures.freshwater.magFilter = THREE.NearestFilter;
       textures.freshwater.minFilter = THREE.LinearMipMapLinearFilter;
+      
+      // Apply texture settings to all land textures to reduce seams
+      const landTextures = [
+        textures.tundra, textures.urban, textures.borealForest, 
+        textures.temperateForest, textures.tropicalRainforest, textures.cropland,
+        textures.scrub, textures.temperateGrassland, textures.pastureland,
+        textures.savanna, textures.deserts
+      ];
+      
+      landTextures.forEach(texture => {
+        texture.wrapS = texture.wrapT = THREE.ClampToEdgeWrapping; // Prevent edge bleeding
+        texture.minFilter = THREE.LinearFilter; // Smooth filtering
+        texture.magFilter = THREE.LinearFilter;
+        texture.anisotropy = 16; // Maximum anisotropic filtering for better quality
+      });
     } catch (e) {
       // If textures not fully loaded yet, ignore - loader will update filters when ready
-      console.warn('Failed to set water texture filters/repeat; continuing', e);
+      console.warn('Failed to set texture filters/repeat; continuing', e);
     }
     
     // Remove noise generation since we're using flat terrain
@@ -923,10 +1489,6 @@ export class SquareMapComponent implements AfterViewInit {
         // (largest first) into the map grid.
         // The generated assignment map is stored in `mapAssignments` and used below
         // to assign terrain types per tile.
-        // NOTE: this replaces the natural island pre-calculation approach.
-        // Keep `naturalIslandMap` undefined to avoid mixing approaches.
-        // this.naturalIslandMap = new Map<string, boolean>();
-        // this.calculateNaturalIslandShape(halfSize);
       
         // Calculate quotas (convert area breakdown into tile quotas) before placement
         this.calculateBiomeQuotas();
@@ -946,62 +1508,197 @@ export class SquareMapComponent implements AfterViewInit {
         // Store for read-only sampling in generateVisualMap to avoid mutating counters
         this.lastMapAssignments = mapAssignments;
     }
-  const squareGeometry = new THREE.BoxGeometry(1, 1, 1);
+  // Create two types of geometry:
+  // 1. Regular box for interior tiles (seamless joining)
+  // 2. Rounded box for perimeter tiles (smooth edges)
+  const interiorGeometry = new THREE.BoxGeometry(1.0, 1.0, 1.0);
+  const perimeterGeometry = new RoundedBoxGeometry(1.0, 1.0, 1.0, 4, this.cornerRadius * 5);
+  
   // Use a flat plane for water (lies on XZ plane). We'll rotate the plane once and reuse it.
-  const unitWaterPlane = new THREE.PlaneGeometry(1, 1);
+  const unitWaterPlane = new THREE.PlaneGeometry(1.01, 1.01);
   unitWaterPlane.rotateX(-Math.PI / 2);
     
-    // Create individual meshes for each terrain type with their specific textures
-    this.mountainsMesh = new THREE.InstancedMesh(squareGeometry, new THREE.MeshPhysicalMaterial({ 
-      envMap: envmap, envMapIntensity: 0.135, flatShading: true, roughness: 1, metalness: 0, map: textures.mountains 
-    }), squareCount);
+    // Helper function to check if a tile is on the perimeter of its biome
+    const isPerimeterTile = (x: number, z: number, biome: TerrainType, mapAssignments: Map<string, TerrainType>): boolean => {
+      // Check all 8 neighbors (including diagonals for smoother edges)
+      const neighbors = [
+        [-1, 0], [1, 0], [0, -1], [0, 1],  // Cardinal directions
+        [-1, -1], [-1, 1], [1, -1], [1, 1]  // Diagonals
+      ];
+      
+      for (const [dx, dz] of neighbors) {
+        const neighborKey = `${x + dx},${z + dz}`;
+        const neighborBiome = mapAssignments.get(neighborKey);
+        
+        // If neighbor doesn't exist or is a different biome, this is a perimeter tile
+        if (!neighborBiome || neighborBiome !== biome) {
+          return true;
+        }
+      }
+      
+      return false;
+    };
     
-    this.tundraMesh = new THREE.InstancedMesh(squareGeometry, new THREE.MeshPhysicalMaterial({ 
-      envMap: envmap, envMapIntensity: 0.135, flatShading: true, roughness: 1, metalness: 0, map: textures.tundra 
-    }), squareCount);
+    // Create individual meshes for each terrain type with standard materials
+    // We'll create both interior and perimeter versions for seamless joining with rounded edges
+    this.mountainsMesh = new THREE.InstancedMesh(
+      interiorGeometry, 
+      new THREE.MeshPhysicalMaterial({ 
+        envMap: envmap, 
+        envMapIntensity: 0.135, 
+        flatShading: false,
+        roughness: 1, 
+        metalness: 0, 
+        color: 0x8b7355
+      }),
+      squareCount
+    );
     
-    this.urbanMesh = new THREE.InstancedMesh(squareGeometry, new THREE.MeshPhysicalMaterial({ 
-      envMap: envmap, envMapIntensity: 0.135, flatShading: true, roughness: 1, metalness: 0, map: textures.urban 
-    }), squareCount);
+    this.tundraMesh = new THREE.InstancedMesh(
+      interiorGeometry, 
+      new THREE.MeshPhysicalMaterial({ 
+        envMap: envmap, 
+        envMapIntensity: 0.135, 
+        flatShading: false,
+        roughness: 1, 
+        metalness: 0, 
+        map: textures.tundra
+      }),
+      squareCount
+    );
     
-    this.borealForestMesh = new THREE.InstancedMesh(squareGeometry, new THREE.MeshPhysicalMaterial({ 
-      envMap: envmap, envMapIntensity: 0.135, flatShading: true, roughness: 1, metalness: 0, map: textures.borealForest 
-    }), squareCount);
+    this.urbanMesh = new THREE.InstancedMesh(
+      interiorGeometry, 
+      new THREE.MeshPhysicalMaterial({ 
+        envMap: envmap, 
+        envMapIntensity: 0.135, 
+        flatShading: false,
+        roughness: 1, 
+        metalness: 0, 
+        map: textures.urban
+      }),
+      squareCount
+    );
     
-    this.temperateForestMesh = new THREE.InstancedMesh(squareGeometry, new THREE.MeshPhysicalMaterial({ 
-      envMap: envmap, envMapIntensity: 0.135, flatShading: true, roughness: 1, metalness: 0, map: textures.temperateForest 
-    }), squareCount);
+    this.borealForestMesh = new THREE.InstancedMesh(
+      interiorGeometry, 
+      new THREE.MeshPhysicalMaterial({ 
+        envMap: envmap, 
+        envMapIntensity: 0.135, 
+        flatShading: false,
+        roughness: 1, 
+        metalness: 0, 
+        map: textures.borealForest
+      }),
+      squareCount
+    );
     
-    this.tropicalRainforestMesh = new THREE.InstancedMesh(squareGeometry, new THREE.MeshPhysicalMaterial({ 
-      envMap: envmap, envMapIntensity: 0.135, flatShading: true, roughness: 1, metalness: 0, map: textures.tropicalRainforest 
-    }), squareCount);
+    this.temperateForestMesh = new THREE.InstancedMesh(
+      interiorGeometry, 
+      new THREE.MeshPhysicalMaterial({ 
+        envMap: envmap, 
+        envMapIntensity: 0.135, 
+        flatShading: false,
+        roughness: 1, 
+        metalness: 0, 
+        map: textures.temperateForest
+      }),
+      squareCount
+    );
     
-    this.croplandMesh = new THREE.InstancedMesh(squareGeometry, new THREE.MeshPhysicalMaterial({ 
-      envMap: envmap, envMapIntensity: 0.135, flatShading: true, roughness: 1, metalness: 0, map: textures.cropland 
-    }), squareCount);
+    this.tropicalRainforestMesh = new THREE.InstancedMesh(
+      interiorGeometry, 
+      new THREE.MeshPhysicalMaterial({ 
+        envMap: envmap, 
+        envMapIntensity: 0.135, 
+        flatShading: false,
+        roughness: 1, 
+        metalness: 0, 
+        map: textures.tropicalRainforest
+      }),
+      squareCount
+    );
     
-    this.scrubMesh = new THREE.InstancedMesh(squareGeometry, new THREE.MeshPhysicalMaterial({ 
-      envMap: envmap, envMapIntensity: 0.135, flatShading: true, roughness: 1, metalness: 0, map: textures.scrub 
-    }), squareCount);
+    this.croplandMesh = new THREE.InstancedMesh(
+      interiorGeometry, 
+      new THREE.MeshPhysicalMaterial({ 
+        envMap: envmap, 
+        envMapIntensity: 0.135, 
+        flatShading: false,
+        roughness: 1, 
+        metalness: 0, 
+        map: textures.cropland
+      }),
+      squareCount
+    );
     
-    this.temperateGrasslandMesh = new THREE.InstancedMesh(squareGeometry, new THREE.MeshPhysicalMaterial({ 
-      envMap: envmap, envMapIntensity: 0.135, flatShading: true, roughness: 1, metalness: 0, map: textures.temperateGrassland 
-    }), squareCount);
+    this.scrubMesh = new THREE.InstancedMesh(
+      interiorGeometry, 
+      new THREE.MeshPhysicalMaterial({ 
+        envMap: envmap, 
+        envMapIntensity: 0.135, 
+        flatShading: false,
+        roughness: 1, 
+        metalness: 0, 
+        map: textures.scrub
+      }),
+      squareCount
+    );
     
-    this.pasturelandMesh = new THREE.InstancedMesh(squareGeometry, new THREE.MeshPhysicalMaterial({ 
-      envMap: envmap, envMapIntensity: 0.135, flatShading: true, roughness: 1, metalness: 0, map: textures.pastureland 
-    }), squareCount);
+    this.temperateGrasslandMesh = new THREE.InstancedMesh(
+      interiorGeometry, 
+      new THREE.MeshPhysicalMaterial({ 
+        envMap: envmap, 
+        envMapIntensity: 0.135, 
+        flatShading: false,
+        roughness: 1, 
+        metalness: 0, 
+        map: textures.temperateGrassland
+      }),
+      squareCount
+    );
     
-    this.savannaMesh = new THREE.InstancedMesh(squareGeometry, new THREE.MeshPhysicalMaterial({ 
-      envMap: envmap, envMapIntensity: 0.135, flatShading: true, roughness: 1, metalness: 0, map: textures.savanna 
-    }), squareCount);
+    this.pasturelandMesh = new THREE.InstancedMesh(
+      interiorGeometry, 
+      new THREE.MeshPhysicalMaterial({ 
+        envMap: envmap, 
+        envMapIntensity: 0.135, 
+        flatShading: false,
+        roughness: 1, 
+        metalness: 0, 
+        map: textures.pastureland
+      }),
+      squareCount
+    );
     
-    this.desertsMesh = new THREE.InstancedMesh(squareGeometry, new THREE.MeshPhysicalMaterial({ 
-      envMap: envmap, envMapIntensity: 0.135, flatShading: true, roughness: 1, metalness: 0, map: textures.deserts 
-    }), squareCount);
+    this.savannaMesh = new THREE.InstancedMesh(
+      interiorGeometry, 
+      new THREE.MeshPhysicalMaterial({ 
+        envMap: envmap, 
+        envMapIntensity: 0.135, 
+        flatShading: false,
+        roughness: 1, 
+        metalness: 0, 
+        map: textures.savanna
+      }),
+      squareCount
+    );
+    
+    this.desertsMesh = new THREE.InstancedMesh(
+      interiorGeometry, 
+      new THREE.MeshPhysicalMaterial({ 
+        envMap: envmap, 
+        envMapIntensity: 0.135, 
+        flatShading: false,
+        roughness: 1, 
+        metalness: 0, 
+        map: textures.deserts
+      }),
+      squareCount
+    );
     
     this.saltwaterMesh = new THREE.InstancedMesh(unitWaterPlane, new THREE.MeshPhysicalMaterial({ 
-      envMap: envmap, envMapIntensity: 0.3, flatShading: false, roughness: 0.0, metalness: 0.0, 
+      envMap: envmap, envMapIntensity: 0.3, flatShading: true, roughness: 0.0, metalness: 0.0, 
       map: textures.saltwater, transparent: true, opacity: 0.92, color: 0x20a0ff,
       side: THREE.DoubleSide,
       polygonOffset: true,
@@ -1011,7 +1708,7 @@ export class SquareMapComponent implements AfterViewInit {
     }), squareCount);
     
     this.freshwaterMesh = new THREE.InstancedMesh(unitWaterPlane, new THREE.MeshPhysicalMaterial({ 
-      envMap: envmap, envMapIntensity: 0.3, flatShading: false, roughness: 0.1, metalness: 0.1, 
+      envMap: envmap, envMapIntensity: 0.3, flatShading: true, roughness: 0.1, metalness: 0.1, 
       map: textures.freshwater, transparent: true, opacity: 0.95, color: 0x4080ff,
       side: THREE.DoubleSide,
       polygonOffset: true,
@@ -1019,23 +1716,128 @@ export class SquareMapComponent implements AfterViewInit {
       polygonOffsetUnits: 1,
       alphaTest: 0.01
     }), squareCount);
+    
+    // Create perimeter meshes with rounded geometry
+    this.mountainsPerimeterMesh = new THREE.InstancedMesh(
+      perimeterGeometry, 
+      new THREE.MeshPhysicalMaterial({ 
+        envMap: envmap, envMapIntensity: 0.135, flatShading: false,
+        roughness: 1, metalness: 0, color: 0x8b7355
+      }),
+      squareCount
+    );
+    
+    this.tundraPerimeterMesh = new THREE.InstancedMesh(
+      perimeterGeometry, 
+      new THREE.MeshPhysicalMaterial({ 
+        envMap: envmap, envMapIntensity: 0.135, flatShading: false,
+        roughness: 1, metalness: 0, map: textures.tundra
+      }),
+      squareCount
+    );
+    
+    this.urbanPerimeterMesh = new THREE.InstancedMesh(
+      perimeterGeometry, 
+      new THREE.MeshPhysicalMaterial({ 
+        envMap: envmap, envMapIntensity: 0.135, flatShading: false,
+        roughness: 1, metalness: 0, map: textures.urban
+      }),
+      squareCount
+    );
+    
+    this.borealForestPerimeterMesh = new THREE.InstancedMesh(
+      perimeterGeometry, 
+      new THREE.MeshPhysicalMaterial({ 
+        envMap: envmap, envMapIntensity: 0.135, flatShading: false,
+        roughness: 1, metalness: 0, map: textures.borealForest
+      }),
+      squareCount
+    );
+    
+    this.temperateForestPerimeterMesh = new THREE.InstancedMesh(
+      perimeterGeometry, 
+      new THREE.MeshPhysicalMaterial({ 
+        envMap: envmap, envMapIntensity: 0.135, flatShading: false,
+        roughness: 1, metalness: 0, map: textures.temperateForest
+      }),
+      squareCount
+    );
+    
+    this.tropicalRainforestPerimeterMesh = new THREE.InstancedMesh(
+      perimeterGeometry, 
+      new THREE.MeshPhysicalMaterial({ 
+        envMap: envmap, envMapIntensity: 0.135, flatShading: false,
+        roughness: 1, metalness: 0, map: textures.tropicalRainforest
+      }),
+      squareCount
+    );
+    
+    this.croplandPerimeterMesh = new THREE.InstancedMesh(
+      perimeterGeometry, 
+      new THREE.MeshPhysicalMaterial({ 
+        envMap: envmap, envMapIntensity: 0.135, flatShading: false,
+        roughness: 1, metalness: 0, map: textures.cropland
+      }),
+      squareCount
+    );
+    
+    this.scrubPerimeterMesh = new THREE.InstancedMesh(
+      perimeterGeometry, 
+      new THREE.MeshPhysicalMaterial({ 
+        envMap: envmap, envMapIntensity: 0.135, flatShading: false,
+        roughness: 1, metalness: 0, map: textures.scrub
+      }),
+      squareCount
+    );
+    
+    this.temperateGrasslandPerimeterMesh = new THREE.InstancedMesh(
+      perimeterGeometry, 
+      new THREE.MeshPhysicalMaterial({ 
+        envMap: envmap, envMapIntensity: 0.135, flatShading: false,
+        roughness: 1, metalness: 0, map: textures.temperateGrassland
+      }),
+      squareCount
+    );
+    
+    this.pasturelandPerimeterMesh = new THREE.InstancedMesh(
+      perimeterGeometry, 
+      new THREE.MeshPhysicalMaterial({ 
+        envMap: envmap, envMapIntensity: 0.135, flatShading: false,
+        roughness: 1, metalness: 0, map: textures.pastureland
+      }),
+      squareCount
+    );
+    
+    this.savannaPerimeterMesh = new THREE.InstancedMesh(
+      perimeterGeometry, 
+      new THREE.MeshPhysicalMaterial({ 
+        envMap: envmap, envMapIntensity: 0.135, flatShading: false,
+        roughness: 1, metalness: 0, map: textures.savanna
+      }),
+      squareCount
+    );
+    
+    this.desertsPerimeterMesh = new THREE.InstancedMesh(
+      perimeterGeometry, 
+      new THREE.MeshPhysicalMaterial({ 
+        envMap: envmap, envMapIntensity: 0.135, flatShading: false,
+        roughness: 1, metalness: 0, map: textures.deserts
+      }),
+      squareCount
+    );
 
-    // Initialize index counters for each terrain type
-    let mountainsIndex = 0;
-    let tundraIndex = 0;
-    let urbanIndex = 0;
-    let borealForestIndex = 0;
-    let temperateForestIndex = 0;
-    let tropicalRainforestIndex = 0;
-    let croplandIndex = 0;
-    let scrubIndex = 0;
-    let temperateGrasslandIndex = 0;
-    let pasturelandIndex = 0;
-    let savannaIndex = 0;
-    let desertsIndex = 0;
-    let saltwaterIndex = 0;
-    let freshwaterIndex = 0;
-    let waterIndex = 0;
+    // Initialize index counters for each terrain type (interior and perimeter)
+    const interiorIndices = {
+      mountains: 0, tundra: 0, urban: 0, borealForest: 0, temperateForest: 0,
+      tropicalRainforest: 0, cropland: 0, scrub: 0, temperateGrassland: 0,
+      pastureland: 0, savanna: 0, deserts: 0, saltwater: 0, freshwater: 0
+    };
+    
+    const perimeterIndices = {
+      mountains: 0, tundra: 0, urban: 0, borealForest: 0, temperateForest: 0,
+      tropicalRainforest: 0, cropland: 0, scrub: 0, temperateGrassland: 0,
+      pastureland: 0, savanna: 0, deserts: 0
+    };
 
     // Clear the tile mapping and height cache
     this.tileToInstanceMap.clear();
@@ -1065,358 +1867,285 @@ export class SquareMapComponent implements AfterViewInit {
       pastureland: 0, cropland: 0, scrub: 0, urban: 0
     };
 
-  // Merge adjacent identical tiles into larger rectangles to avoid visible seams
-  // Build a type grid and visited grid
-    const gridTypes: VisualTerrainType[][] = [];
-    const visited: boolean[][] = [];
-    // Collect water geometries to merge later (reduces seams)
-    const saltwaterGeometries: THREE.BufferGeometry[] = [];
-    const freshwaterGeometries: THREE.BufferGeometry[] = [];
-    const saltwaterTileGroups: string[][] = [];
-    const freshwaterTileGroups: string[][] = [];
-    for (let gz = 0; gz < mapSize; gz++) {
-      gridTypes[gz] = new Array(mapSize);
-      visited[gz] = new Array(mapSize).fill(false);
-    }
+    // Map terrain types to their meshes (interior and perimeter)
+    const terrainMeshes: Record<VisualTerrainType, THREE.InstancedMesh | null> = {
+      mountains: this.mountainsMesh,
+      tundra: this.tundraMesh,
+      urban: this.urbanMesh,
+      borealForest: this.borealForestMesh,
+      temperateForest: this.temperateForestMesh,
+      tropicalRainforest: this.tropicalRainforestMesh,
+      cropland: this.croplandMesh,
+      scrub: this.scrubMesh,
+      temperateGrassland: this.temperateGrasslandMesh,
+      pastureland: this.pasturelandMesh,
+      savanna: this.savannaMesh,
+      deserts: this.desertsMesh,
+      saltwater: this.saltwaterMesh,
+      freshwater: this.freshwaterMesh
+    };
+    
+    const perimeterMeshes: Record<string, THREE.InstancedMesh | null> = {
+      mountains: this.mountainsPerimeterMesh,
+      tundra: this.tundraPerimeterMesh,
+      urban: this.urbanPerimeterMesh,
+      borealForest: this.borealForestPerimeterMesh,
+      temperateForest: this.temperateForestPerimeterMesh,
+      tropicalRainforest: this.tropicalRainforestPerimeterMesh,
+      cropland: this.croplandPerimeterMesh,
+      scrub: this.scrubPerimeterMesh,
+      temperateGrassland: this.temperateGrasslandPerimeterMesh,
+      pastureland: this.pasturelandPerimeterMesh,
+      savanna: this.savannaPerimeterMesh,
+      deserts: this.desertsPerimeterMesh
+    };
 
-    // Fill gridTypes from mapAssignments (mapAssignments keys are "x,z" with center coords)
-    for (let gz = 0; gz < mapSize; gz++) {
-      for (let gx = 0; gx < mapSize; gx++) {
-        const x = gx - halfSize;
-        const z = gz - halfSize;
+    // Create arrays to store interior and perimeter tiles separately
+    const interiorTiles: Record<VisualTerrainType, Array<{x: number, z: number}>> = {
+      mountains: [], tundra: [], urban: [], borealForest: [], temperateForest: [],
+      tropicalRainforest: [], cropland: [], scrub: [], temperateGrassland: [],
+      pastureland: [], savanna: [], deserts: [], saltwater: [], freshwater: []
+    };
+    
+    const perimeterTiles: Record<string, Array<{x: number, z: number}>> = {
+      mountains: [], tundra: [], urban: [], borealForest: [], temperateForest: [],
+      tropicalRainforest: [], cropland: [], scrub: [], temperateGrassland: [],
+      pastureland: [], savanna: [], deserts: []
+    };
+
+    // Instead of using instanced meshes, create merged geometries for each biome
+    // This allows us to create one cohesive mesh per biome with rounded outer edges
+    
+    // Helper function to get edge rounding flags for a tile
+    const getEdgeRounding = (x: number, z: number, biome: TerrainType, mapAssignments: Map<string, TerrainType>) => {
+      const neighbors = {
+        north: mapAssignments.get(`${x},${z-1}`),
+        south: mapAssignments.get(`${x},${z+1}`),
+        east: mapAssignments.get(`${x+1},${z}`),
+        west: mapAssignments.get(`${x-1},${z}`)
+      };
+      
+      return {
+        roundNorth: neighbors.north !== biome,
+        roundSouth: neighbors.south !== biome,
+        roundEast: neighbors.east !== biome,
+        roundWest: neighbors.west !== biome
+      };
+    };
+    
+    // Helper to create a box with selective edge rounding using custom attributes
+    // This adds custom attributes to mark which edges should be beveled
+    const createSelectivelyRoundedBox = (
+      width: number, 
+      height: number, 
+      depth: number, 
+      roundEdges: {roundNorth: boolean, roundSouth: boolean, roundEast: boolean, roundWest: boolean},
+      radius: number
+    ): THREE.BufferGeometry => {
+      // Create a regular box geometry
+      const geometry = new THREE.BoxGeometry(width, height, depth);
+      
+      // Add custom attributes for edge rounding
+      // We'll store which edges should be rounded for each vertex
+      const positionAttr = geometry.attributes['position'];
+      const vertexCount = positionAttr.count;
+      
+      // Create arrays to store edge rounding data for each vertex
+      const edgeRoundingData = new Float32Array(vertexCount * 4); // 4 values per vertex (N, S, E, W)
+      
+      // Half dimensions for comparison
+      const hw = width / 2;
+      const hd = depth / 2;
+      const threshold = 0.001; // Small threshold for floating point comparison
+      
+      // For each vertex, determine which edges it's on and mark accordingly
+      for (let i = 0; i < vertexCount; i++) {
+        const x = positionAttr.getX(i);
+        const z = positionAttr.getZ(i);
+        
+        // Check which edges this vertex is on
+        const onNorth = Math.abs(z + hd) < threshold; // -z edge
+        const onSouth = Math.abs(z - hd) < threshold; // +z edge
+        const onEast = Math.abs(x - hw) < threshold;  // +x edge
+        const onWest = Math.abs(x + hw) < threshold;  // -x edge
+        
+        // Store rounding flags (1.0 = round, 0.0 = don't round)
+        edgeRoundingData[i * 4 + 0] = (onNorth && roundEdges.roundNorth) ? 1.0 : 0.0;
+        edgeRoundingData[i * 4 + 1] = (onSouth && roundEdges.roundSouth) ? 1.0 : 0.0;
+        edgeRoundingData[i * 4 + 2] = (onEast && roundEdges.roundEast) ? 1.0 : 0.0;
+        edgeRoundingData[i * 4 + 3] = (onWest && roundEdges.roundWest) ? 1.0 : 0.0;
+      }
+      
+      // Add the custom attribute to the geometry
+      geometry.setAttribute('edgeRounding', new THREE.BufferAttribute(edgeRoundingData, 4));
+      
+      // Store the bevel radius as a uniform value (we'll access it in the shader)
+      (geometry as any).bevelRadius = radius;
+      
+      return geometry;
+    };
+    
+    // Create merged geometry for each biome
+    const biomeGeometries: Record<VisualTerrainType, THREE.BufferGeometry[]> = {
+      mountains: [], tundra: [], urban: [], borealForest: [], temperateForest: [],
+      tropicalRainforest: [], cropland: [], scrub: [], temperateGrassland: [],
+      pastureland: [], savanna: [], deserts: [], saltwater: [], freshwater: []
+    };
+    
+    // Process each tile and create appropriate geometry
+    for (let x = -halfSize; x < halfSize; x++) {
+      for (let z = -halfSize; z < halfSize; z++) {
         const key = `${x},${z}`;
         const logical = (mapAssignments.get(key) || 'saltwater') as TerrainType;
-        gridTypes[gz][gx] = TERRAIN_VISUAL_MAPPING[logical];
-      }
-    }
-
-    const gridToCoord = (gx: number, gz: number) => ({ x: gx - halfSize, z: gz - halfSize });
-
-    for (let gz = 0; gz < mapSize; gz++) {
-      for (let gx = 0; gx < mapSize; gx++) {
-        if (visited[gz][gx]) continue;
-        const terrainType = gridTypes[gz][gx];
-        // Find maximal width
-        let width = 1;
-        while (gx + width < mapSize && !visited[gz][gx + width] && gridTypes[gz][gx + width] === terrainType) width++;
-        // Find maximal height for this width
-        let height = 1;
-        outer: while (gz + height < mapSize) {
-          for (let wx = 0; wx < width; wx++) {
-            if (visited[gz + height][gx + wx] || gridTypes[gz + height][gx + wx] !== terrainType) break outer;
-          }
-          height++;
-        }
-
-        // Mark visited
-        for (let yy = 0; yy < height; yy++) {
-          for (let xx = 0; xx < width; xx++) {
-            visited[gz + yy][gx + xx] = true;
-          }
-        }
-
-        // Compute world position for the rectangle center
-        const centerGX = gx + (width - 1) / 2;
-        const centerGZ = gz + (height - 1) / 2;
-        const coord = gridToCoord(centerGX, centerGZ);
-        const position = new THREE.Vector2(coord.x, coord.z);
-
-        // Determine base height
-        let baseHeight = 0.1;
-        if (terrainType !== 'saltwater' && terrainType !== 'freshwater') {
+        const terrainType = TERRAIN_VISUAL_MAPPING[logical];
+        
+        // Update counts
+        terrainCounts[terrainType] = (terrainCounts[terrainType] || 0) + 1;
+        logicalTerrainCounts[logical] = (logicalTerrainCounts[logical] || 0) + 1;
+        
+        // Position at tile center
+        const posX = x + 0.5;
+        const posZ = z + 0.5;
+        
+        // Determine height based on terrain type
+        let height = 0.1;
+        if (terrainType === 'freshwater') {
+          height = 4.8;
+        } else if (terrainType === 'saltwater') {
+          height = 0.1;
+        } else {
           switch (terrainType) {
-            case 'mountains': baseHeight = 8.0; break;
-            case 'tundra': baseHeight = 6.5; break;
-            case 'urban': baseHeight = 5.5; break;
-            case 'borealForest': baseHeight = 4.5; break;
-            case 'temperateForest': baseHeight = 3.5; break;
-            case 'tropicalRainforest': baseHeight = 3.0; break;
-            case 'temperateGrassland': baseHeight = 2.5; break;
-            case 'pastureland': baseHeight = 2.0; break;
-            case 'cropland': baseHeight = 1.8; break;
-            case 'savanna': baseHeight = 1.5; break;
-            case 'scrub': baseHeight = 1.0; break;
-            case 'deserts': baseHeight = 0.8; break;
-            default: baseHeight = 2.5; break;
+            case 'mountains': height = 8.0; break;
+            case 'tundra': height = 6.5; break;
+            case 'urban': height = 5.5; break;
+            case 'borealForest': height = 4.5; break;
+            case 'temperateForest': height = 3.5; break;
+            case 'tropicalRainforest': height = 3.0; break;
+            case 'temperateGrassland': height = 2.5; break;
+            case 'pastureland': height = 2.0; break;
+            case 'cropland': height = 1.8; break;
+            case 'savanna': height = 1.5; break;
+            case 'scrub': height = 1.0; break;
+            case 'deserts': height = 0.8; break;
+            default: height = 2.5; break;
           }
         }
-
-        // Create matrix for the rectangle using compose(position, quaternion, scale)
-        // Compose ensures scale does not affect translation (no translated scaling)
-        const posY = (terrainType === 'freshwater' || terrainType === 'saltwater') ? 0 : baseHeight * 0.5;
-        const scaleY = (terrainType === 'freshwater' || terrainType === 'saltwater') ? 0.2 : baseHeight;
-        const matrix = new THREE.Matrix4();
-        const positionVec = new THREE.Vector3(position.x, posY, position.y);
-        const scaleVec = new THREE.Vector3(width, scaleY, height);
-        const quat = new THREE.Quaternion();
-        matrix.compose(positionVec, quat, scaleVec);
-
-        // Assign to appropriate mesh based on terrain type and set mapping for every tile in rect
-        const tileKeys: string[] = [];
-        for (let yy = 0; yy < height; yy++) {
-          for (let xx = 0; xx < width; xx++) {
-            const gxIdx = gx + xx;
-            const gzIdx = gz + yy;
-            const worldX = gxIdx - halfSize;
-            const worldZ = gzIdx - halfSize;
-            tileKeys.push(`${worldX},${worldZ}`);
-          }
+        
+        // Create geometry for this tile
+        let tileGeometry: THREE.BufferGeometry;
+        
+        if (terrainType === 'saltwater' || terrainType === 'freshwater') {
+          // Water uses flat plane
+          // Saltwater at ground level (y=0), Freshwater uses its height variable
+          const waterHeight = terrainType === 'saltwater' ? 0 : (height * 0.5);
+          tileGeometry = new THREE.PlaneGeometry(1.0, 1.0);
+          tileGeometry.rotateX(-Math.PI / 2);
+          tileGeometry.translate(posX, waterHeight, posZ);
+        } else {
+          // Land tiles - check if perimeter and get edge rounding
+          const edgeRounding = getEdgeRounding(x, z, logical, mapAssignments);
+          
+          // Always use createSelectivelyRoundedBox which adds the edgeRounding attribute
+          // For non-perimeter tiles, all flags will be 0.0 (no rounding)
+          tileGeometry = createSelectivelyRoundedBox(1.0, height, 1.0, edgeRounding, this.cornerRadius * 5);
+          
+          // Position the land geometry
+          tileGeometry.translate(posX, height * 0.5, posZ);
         }
-
-        // Update counts for this rectangle (visual + logical)
+        
+        // Ensure geometry has proper attributes for merging
+        if (!tileGeometry.attributes['normal']) {
+          tileGeometry.computeVertexNormals();
+        }
+        
+        // Add to biome geometry array
+        biomeGeometries[terrainType].push(tileGeometry);
+      }
+    }
+    
+    // Merge geometries for each biome and create meshes
+    for (const [terrainType, geometries] of Object.entries(biomeGeometries)) {
+      if (geometries.length > 0) {
+        const terrain = terrainType as VisualTerrainType;
+        
         try {
-          // visual counts
-          terrainCounts[terrainType] = (terrainCounts[terrainType] || 0) + tileKeys.length;
-
-          // logical counts (map visual back to logical)
-          const logical = this.getLogicalTerrainFromVisual(terrainType, position.x, position.y);
-          // Update local counters only (authoritative assignment happens after merging)
-          logicalTerrainCounts[logical] = (logicalTerrainCounts[logical] || 0) + tileKeys.length;
-        } catch (e) {
-          // ignore counting errors
-        }
-
-        switch (terrainType) {
-          case 'mountains':
-            this.mountainsMesh.setMatrixAt(mountainsIndex, matrix);
-            tileKeys.forEach(k => this.tileToInstanceMap.set(k, {mesh: this.mountainsMesh, index: mountainsIndex}));
-            mountainsIndex++;
-            break;
-          case 'tundra':
-            this.tundraMesh.setMatrixAt(tundraIndex, matrix);
-            tileKeys.forEach(k => this.tileToInstanceMap.set(k, {mesh: this.tundraMesh, index: tundraIndex}));
-            tundraIndex++;
-            break;
-          case 'urban':
-            this.urbanMesh.setMatrixAt(urbanIndex, matrix);
-            tileKeys.forEach(k => this.tileToInstanceMap.set(k, {mesh: this.urbanMesh, index: urbanIndex}));
-            urbanIndex++;
-            break;
-          case 'cropland':
-            this.croplandMesh.setMatrixAt(croplandIndex, matrix);
-            tileKeys.forEach(k => this.tileToInstanceMap.set(k, {mesh: this.croplandMesh, index: croplandIndex}));
-            croplandIndex++;
-            break;
-          case 'scrub':
-            this.scrubMesh.setMatrixAt(scrubIndex, matrix);
-            tileKeys.forEach(k => this.tileToInstanceMap.set(k, {mesh: this.scrubMesh, index: scrubIndex}));
-            scrubIndex++;
-            break;
-          case 'temperateGrassland':
-            this.temperateGrasslandMesh.setMatrixAt(temperateGrasslandIndex, matrix);
-            tileKeys.forEach(k => this.tileToInstanceMap.set(k, {mesh: this.temperateGrasslandMesh, index: temperateGrasslandIndex}));
-            temperateGrasslandIndex++;
-            break;
-          case 'pastureland':
-            this.pasturelandMesh.setMatrixAt(pasturelandIndex, matrix);
-            tileKeys.forEach(k => this.tileToInstanceMap.set(k, {mesh: this.pasturelandMesh, index: pasturelandIndex}));
-            pasturelandIndex++;
-            break;
-          case 'savanna':
-            this.savannaMesh.setMatrixAt(savannaIndex, matrix);
-            tileKeys.forEach(k => this.tileToInstanceMap.set(k, {mesh: this.savannaMesh, index: savannaIndex}));
-            savannaIndex++;
-            break;
-          case 'deserts':
-            this.desertsMesh.setMatrixAt(desertsIndex, matrix);
-            tileKeys.forEach(k => this.tileToInstanceMap.set(k, {mesh: this.desertsMesh, index: desertsIndex}));
-            desertsIndex++;
-            break;
-          case 'borealForest':
-            this.borealForestMesh.setMatrixAt(borealForestIndex, matrix);
-            tileKeys.forEach(k => this.tileToInstanceMap.set(k, {mesh: this.borealForestMesh, index: borealForestIndex}));
-            borealForestIndex++;
-            break;
-          case 'temperateForest':
-            this.temperateForestMesh.setMatrixAt(temperateForestIndex, matrix);
-            tileKeys.forEach(k => this.tileToInstanceMap.set(k, {mesh: this.temperateForestMesh, index: temperateForestIndex}));
-            temperateForestIndex++;
-            break;
-          case 'tropicalRainforest':
-            this.tropicalRainforestMesh.setMatrixAt(tropicalRainforestIndex, matrix);
-            tileKeys.forEach(k => this.tileToInstanceMap.set(k, {mesh: this.tropicalRainforestMesh, index: tropicalRainforestIndex}));
-            tropicalRainforestIndex++;
-            break;
-            case 'saltwater':
-              // Create a flat plane geometry for water rectangles (no vertical faces to show seams)
-              try {
-                const plane = new THREE.PlaneGeometry(1, 1);
-                plane.rotateX(-Math.PI / 2);
-                // Apply the same composed matrix (position + scale) to the plane geometry
-                // We need a separate matrix without Y-scale for the plane thickness
-                const waterMatrix = new THREE.Matrix4();
-                // plane scale should be width x 1 x height
-                const planeScale = new THREE.Vector3(width, 1, height);
-                waterMatrix.compose(positionVec, quat, planeScale);
-                plane.applyMatrix4(waterMatrix);
-                saltwaterGeometries.push(plane);
-                saltwaterTileGroups.push(tileKeys.slice());
-              } catch (e) {
-                // Fallback: set an instance on the instanced plane mesh
-                this.saltwaterMesh.setMatrixAt(saltwaterIndex, matrix);
-                tileKeys.forEach(k => this.tileToInstanceMap.set(k, {mesh: this.saltwaterMesh, index: saltwaterIndex}));
-                saltwaterIndex++;
-              }
-            break;
-          case 'freshwater':
-            try {
-              const plane = new THREE.PlaneGeometry(1, 1);
-              plane.rotateX(-Math.PI / 2);
-              const waterMatrix = new THREE.Matrix4();
-              const planeScale = new THREE.Vector3(width, 1, height);
-              waterMatrix.compose(positionVec, quat, planeScale);
-              plane.applyMatrix4(waterMatrix);
-              freshwaterGeometries.push(plane);
-              freshwaterTileGroups.push(tileKeys.slice());
-            } catch (e) {
-              this.freshwaterMesh.setMatrixAt(freshwaterIndex, matrix);
-              tileKeys.forEach(k => this.tileToInstanceMap.set(k, {mesh: this.freshwaterMesh, index: freshwaterIndex}));
-              freshwaterIndex++;
+          // Filter out any null geometries and ensure all have compatible attributes
+          const validGeometries = geometries.filter(g => g && g.attributes['position']);
+          
+          if (validGeometries.length === 0) {
+            console.warn(`No valid geometries for terrain type: ${terrain}`);
+            continue;
+          }
+          
+          // Ensure all geometries are non-indexed for consistent merging
+          // This is crucial because BoxGeometry is indexed but PlaneGeometry might not be
+          const nonIndexedGeometries = validGeometries.map(geom => {
+            // Clone to avoid modifying original
+            const cloned = geom.clone();
+            
+            // Convert indexed to non-indexed if needed
+            if (cloned.index) {
+              return cloned.toNonIndexed();
             }
-            break;
+            
+            // Ensure normals are computed
+            if (!cloned.attributes['normal']) {
+              cloned.computeVertexNormals();
+            }
+            
+            return cloned;
+          });
+          
+          // Merge all geometries for this biome
+          // Use useGroups=false since we're using one material per biome
+          const mergedGeometry = BufferGeometryUtils.mergeGeometries(nonIndexedGeometries, false);
+          
+          if (!mergedGeometry) {
+            console.error(`Failed to merge geometries for terrain type: ${terrain}`);
+            continue;
+          }
+          
+          // Create appropriate material
+          let material: THREE.Material;
+          if (terrain === 'saltwater') {
+            // Use custom shader for water too, for consistency with land rendering
+            material = this.createWaterMaterial(textures.saltwater, 0x20a0ff, envmap, 0.92);
+          } else if (terrain === 'freshwater') {
+            // Use custom shader for water too, for consistency with land rendering
+            material = this.createWaterMaterial(textures.freshwater, 0x4080ff, envmap, 0.95);
+          } else {
+            const textureMap = textures[terrain as keyof typeof textures];
+            // Use white for all terrains - let the texture and lighting define the color
+            const materialColor = 0xffffff;
+            
+            // Create custom shader material with vertex-based beveling
+            material = this.createBeveledMaterial(textureMap, materialColor, envmap, this.cornerRadius * 5);
+          }
+          
+          // Create mesh and add to scene
+          const biomeMesh = new THREE.Mesh(mergedGeometry, material);
+          biomeMesh.castShadow = true;
+          biomeMesh.receiveShadow = true;
+          
+          // Set render order: land should render after water (higher order = renders later)
+          if (terrain === 'saltwater' || terrain === 'freshwater') {
+            biomeMesh.renderOrder = -1; // Render water first
+          } else {
+            biomeMesh.renderOrder = 0; // Render land after
+          }
+          
+          this.scene.add(biomeMesh);
+          
+          // Store reference for hover detection
+          (biomeMesh as any).terrainType = terrain;
+          
+        } catch (error) {
+          console.error(`Error creating mesh for terrain type ${terrain}:`, error);
         }
       }
     }
 
-  // Only render the number of instances we actually set matrices for.
-  // InstancedMesh was created with capacity = squareCount; if we don't set
-  // .count then the renderer may draw all allocated instances (many of which
-  // are still at identity and appear at the origin). Setting .count prevents
-  // that and removes the single center artifact and related performance issues.
-  this.mountainsMesh.count = mountainsIndex;
-  this.tundraMesh.count = tundraIndex;
-  this.urbanMesh.count = urbanIndex;
-  this.borealForestMesh.count = borealForestIndex;
-  this.temperateForestMesh.count = temperateForestIndex;
-  this.tropicalRainforestMesh.count = tropicalRainforestIndex;
-  this.croplandMesh.count = croplandIndex;
-  this.scrubMesh.count = scrubIndex;
-  this.temperateGrasslandMesh.count = temperateGrasslandIndex;
-  this.pasturelandMesh.count = pasturelandIndex;
-  this.savannaMesh.count = savannaIndex;
-  this.desertsMesh.count = desertsIndex;
-  this.saltwaterMesh.count = saltwaterIndex;
-  this.freshwaterMesh.count = freshwaterIndex;
-
-  this.mountainsMesh.instanceMatrix.needsUpdate = true;
-  this.tundraMesh.instanceMatrix.needsUpdate = true;
-  this.urbanMesh.instanceMatrix.needsUpdate = true;
-  this.borealForestMesh.instanceMatrix.needsUpdate = true;
-  this.temperateForestMesh.instanceMatrix.needsUpdate = true;
-  this.tropicalRainforestMesh.instanceMatrix.needsUpdate = true;
-  this.croplandMesh.instanceMatrix.needsUpdate = true;
-  this.scrubMesh.instanceMatrix.needsUpdate = true;
-  this.temperateGrasslandMesh.instanceMatrix.needsUpdate = true;
-  this.pasturelandMesh.instanceMatrix.needsUpdate = true;
-  this.savannaMesh.instanceMatrix.needsUpdate = true;
-  this.desertsMesh.instanceMatrix.needsUpdate = true;
-  this.saltwaterMesh.instanceMatrix.needsUpdate = true;
-  this.freshwaterMesh.instanceMatrix.needsUpdate = true;
-
-  // Merge collected water geometries into single meshes to eliminate seams
-  // Saltwater merging (robust)
-  if (saltwaterGeometries.length > 0) {
-    console.log('Attempting to merge', saltwaterGeometries.length, 'saltwater rectangles');
-    let mergedSalt: THREE.BufferGeometry | null = null;
-    try {
-      if (typeof (BufferGeometryUtils as any).mergeBufferGeometries === 'function') {
-        mergedSalt = (BufferGeometryUtils as any).mergeBufferGeometries(saltwaterGeometries, false) as THREE.BufferGeometry;
-      } else if (typeof (BufferGeometryUtils as any).mergeGeometries === 'function') {
-        mergedSalt = (BufferGeometryUtils as any).mergeGeometries(saltwaterGeometries) as THREE.BufferGeometry;
-      } else {
-        throw new Error('No merge function available on BufferGeometryUtils');
-      }
-    } catch (e) {
-      console.warn('Saltwater merge failed, will fall back to adding individual water meshes', e);
-    }
-
-    if (mergedSalt) {
-  const saltMat = (this.saltwaterMesh.material as THREE.Material).clone() as THREE.MeshPhysicalMaterial;
-  saltMat.transparent = true;
-  saltMat.opacity = (saltMat as any).opacity ?? 0.85;
-  // For merged, single geometry write depth to avoid sorting issues
-  saltMat.depthWrite = true;
-  saltMat.depthTest = true;
-  saltMat.polygonOffset = true;
-  saltMat.polygonOffsetFactor = -1;
-  saltMat.polygonOffsetUnits = 1;
-  saltMat.alphaTest = 0.01;
-  saltMat.side = THREE.DoubleSide;
-  const mergedSaltMesh = new THREE.Mesh(mergedSalt, saltMat);
-      mergedSaltMesh.receiveShadow = true;
-      mergedSaltMesh.castShadow = false;
-      mergedSaltMesh.renderOrder = 100;
-      mergedSaltMesh.name = 'mergedSaltwater';
-      this.scene.add(mergedSaltMesh);
-      try { this.saltwaterMesh.visible = false; } catch (e) {}
-      saltwaterTileGroups.forEach(group => group.forEach(k => this.tileToInstanceMap.set(k, {mesh: mergedSaltMesh as any, index: 0})));
-    } else {
-      // Fallback: add each saltwater geometry as its own mesh so water remains visible
-  const saltMat = (this.saltwaterMesh.material as THREE.Material).clone() as THREE.MeshPhysicalMaterial;
-  saltMat.transparent = true; saltMat.opacity = (saltMat as any).opacity ?? 0.85; saltMat.depthWrite = true; saltMat.depthTest = true;
-  saltMat.polygonOffset = true; saltMat.polygonOffsetFactor = -1; saltMat.polygonOffsetUnits = 1; saltMat.alphaTest = 0.01; saltMat.side = THREE.DoubleSide;
-      for (let i = 0; i < saltwaterGeometries.length; i++) {
-        const geom = saltwaterGeometries[i];
-        const mesh = new THREE.Mesh(geom, saltMat);
-        mesh.receiveShadow = true; mesh.castShadow = false; mesh.renderOrder = 100;
-        this.scene.add(mesh);
-        saltwaterTileGroups[i].forEach(k => this.tileToInstanceMap.set(k, {mesh: mesh as any, index: 0}));
-      }
-      try { this.saltwaterMesh.visible = false; } catch (e) {}
-    }
-  }
-
-  // Freshwater merging (robust)
-  if (freshwaterGeometries.length > 0) {
-    console.log('Attempting to merge', freshwaterGeometries.length, 'freshwater rectangles');
-    let mergedFresh: THREE.BufferGeometry | null = null;
-    try {
-      if (typeof (BufferGeometryUtils as any).mergeBufferGeometries === 'function') {
-        mergedFresh = (BufferGeometryUtils as any).mergeBufferGeometries(freshwaterGeometries, false) as THREE.BufferGeometry;
-      } else if (typeof (BufferGeometryUtils as any).mergeGeometries === 'function') {
-        mergedFresh = (BufferGeometryUtils as any).mergeGeometries(freshwaterGeometries) as THREE.BufferGeometry;
-      } else {
-        throw new Error('No merge function available on BufferGeometryUtils');
-      }
-    } catch (e) {
-      console.warn('Freshwater merge failed, will fall back to adding individual water meshes', e);
-    }
-
-    if (mergedFresh) {
-  const freshMat = (this.freshwaterMesh.material as THREE.Material).clone() as THREE.MeshPhysicalMaterial;
-  freshMat.transparent = true;
-  freshMat.opacity = (freshMat as any).opacity ?? 0.9;
-  freshMat.depthWrite = true;
-  freshMat.depthTest = true;
-  freshMat.polygonOffset = true;
-  freshMat.polygonOffsetFactor = -1;
-  freshMat.polygonOffsetUnits = 1;
-  freshMat.alphaTest = 0.01;
-  freshMat.side = THREE.DoubleSide;
-  const mergedFreshMesh = new THREE.Mesh(mergedFresh, freshMat);
-      mergedFreshMesh.receiveShadow = true;
-      mergedFreshMesh.castShadow = false;
-      mergedFreshMesh.renderOrder = 100;
-      mergedFreshMesh.name = 'mergedFreshwater';
-      this.scene.add(mergedFreshMesh);
-      try { this.freshwaterMesh.visible = false; } catch (e) {}
-      freshwaterTileGroups.forEach(group => group.forEach(k => this.tileToInstanceMap.set(k, {mesh: mergedFreshMesh as any, index: 0})));
-    } else {
-  const freshMat = (this.freshwaterMesh.material as THREE.Material).clone() as THREE.MeshPhysicalMaterial;
-  freshMat.transparent = true; freshMat.opacity = (freshMat as any).opacity ?? 0.9; freshMat.depthWrite = true; freshMat.depthTest = true;
-  freshMat.polygonOffset = true; freshMat.polygonOffsetFactor = -1; freshMat.polygonOffsetUnits = 1; freshMat.alphaTest = 0.01; freshMat.side = THREE.DoubleSide;
-      for (let i = 0; i < freshwaterGeometries.length; i++) {
-        const geom = freshwaterGeometries[i];
-        const mesh = new THREE.Mesh(geom, freshMat);
-        mesh.receiveShadow = true; mesh.castShadow = false; mesh.renderOrder = 100;
-        this.scene.add(mesh);
-        freshwaterTileGroups[i].forEach(k => this.tileToInstanceMap.set(k, {mesh: mesh as any, index: 0}));
-      }
-      try { this.freshwaterMesh.visible = false; } catch (e) {}
-    }
-  }
-
-    // Reconcile ocean/land counters with the rectangle-derived terrainCounts to avoid drift
+    // Reconcile ocean/land counters with the tile-derived terrainCounts to avoid drift
     const computedSaltwater = terrainCounts.saltwater || 0;
     const computedFreshwater = terrainCounts.freshwater || 0;
     const computedWaterTotal = computedSaltwater + computedFreshwater;
@@ -1608,14 +2337,8 @@ export class SquareMapComponent implements AfterViewInit {
   console.log('Grass (Forests/Grasslands):', this.actualTerrainPercentages.grass + '%', '|', this.expectedTerrainPercentages.grass + '%', '|', (this.actualTerrainPercentages.grass - this.expectedTerrainPercentages.grass).toFixed(1) + '%');
     console.log('========================================');
 
-    this.scene.add(
-      this.mountainsMesh, this.tundraMesh, this.urbanMesh,
-      this.borealForestMesh, this.temperateForestMesh, this.tropicalRainforestMesh,
-      this.croplandMesh, this.scrubMesh, this.temperateGrasslandMesh, this.pasturelandMesh,
-      this.savannaMesh, this.desertsMesh, this.saltwaterMesh, this.freshwaterMesh
-    );
-    console.log('Terrain meshes added to scene');
-    console.log('Scene children count:', this.scene.children.length);
+    // Meshes are now added to scene during geometry merging (see above)
+    // No need to add instanced meshes anymore
     
     console.log('Map update completed successfully');
     this.isUpdating = false;
@@ -1709,6 +2432,7 @@ export class SquareMapComponent implements AfterViewInit {
   }
 
   // Generate deterministic square-block groupings to exactly meet biome tile counts.
+  // CREATES ISLAND: Places all land/freshwater in center, saltwater at edges
   // Returns a map from tileKey "x,z" to the TerrainType assigned.
   private generateSquareGroupsMap(): Map<string, TerrainType> {
     const mapSize = this.populationBasedMapSize;
@@ -1734,61 +2458,59 @@ export class SquareMapComponent implements AfterViewInit {
     }
     coords.sort((a, b) => a.dist - b.dist || a.x - b.x || a.z - b.z);
 
-    // Remaining counters (mutable)
-    const remaining: { [key: string]: number } = {};
-    Object.keys(tileCounts).forEach(k => remaining[k] = tileCounts[k] || 0);
-
     const assignment = new Map<string, TerrainType>();
 
-    // Helper: list of biome keys
-    const biomeKeys = Object.keys(tileCounts);
-
-    // For each tile (closest to center first), choose the best available biome
-    for (const c of coords) {
+    // ISLAND GENERATION: Separate land/freshwater from ocean
+    const landBiomes: { biome: TerrainType; count: number }[] = [];
+    let saltwaterCount = 0;
+    
+    Object.keys(tileCounts).forEach(k => {
+      if (k === 'saltwater') {
+        saltwaterCount = tileCounts[k] || 0;
+      } else {
+        landBiomes.push({ biome: k as TerrainType, count: tileCounts[k] || 0 });
+      }
+    });
+    
+    // Sort land biomes by count (largest first for better distribution)
+    landBiomes.sort((a, b) => b.count - a.count);
+    
+    console.log('🏝️ ISLAND GENERATION:');
+    console.log(`  Land/Freshwater tiles: ${landBiomes.reduce((sum, b) => sum + b.count, 0)}`);
+    console.log(`  Saltwater tiles: ${saltwaterCount}`);
+    
+    // Place land and freshwater tiles in the center (closest tiles first)
+    let coordIndex = 0;
+    for (const landBiome of landBiomes) {
+      let remaining = landBiome.count;
+      while (remaining > 0 && coordIndex < coords.length) {
+        const c = coords[coordIndex];
+        const key = `${c.x},${c.z}`;
+        assignment.set(key, landBiome.biome);
+        remaining--;
+        coordIndex++;
+      }
+      if (remaining > 0) {
+        console.warn(`⚠️ Could not place all ${landBiome.biome} tiles, ${remaining} remaining`);
+      }
+    }
+    
+    console.log(`  Island radius: ${coordIndex > 0 ? coords[coordIndex - 1].dist.toFixed(1) : 0} tiles from center`);
+    
+    // Fill remaining tiles (outer edges) with saltwater
+    while (coordIndex < coords.length) {
+      const c = coords[coordIndex];
       const key = `${c.x},${c.z}`;
-
-      // If only one biome left with tiles, assign it
-      const available = biomeKeys.filter(b => remaining[b] > 0);
-      if (available.length === 1) {
-        assignment.set(key, available[0] as TerrainType);
-        remaining[available[0]]--;
-        continue;
-      }
-
-      // Compute preferred biome for this location using natural clustering heuristics
-      const adjustedDistance = Math.sqrt(c.x * c.x + c.z * c.z) / this.mapHalfSize;
-      const elevation = this.calculateNaturalElevation(c.x, c.z, adjustedDistance);
-      const preferred = this.getNaturalBiomeCluster(c.x, c.z, adjustedDistance, elevation);
-
-      // If preferred biome has remaining quota, use it
-      if (remaining[preferred] > 0) {
-        assignment.set(key, preferred);
-        remaining[preferred]--;
-        continue;
-      }
-
-      // Otherwise choose the biome with the largest remaining count (greedy), deterministic tie-break by key
-      let best: string | null = null;
-      let bestCount = -Infinity;
-      for (const b of biomeKeys) {
-        const r = remaining[b];
-        if (r > bestCount) {
-          best = b;
-          bestCount = r;
-        } else if (r === bestCount && best && b < best) {
-          // stable deterministic tiebreak
-          best = b;
-        }
-      }
-      if (!best) best = 'saltwater';
-      assignment.set(key, best as TerrainType);
-      remaining[best]--;
+      assignment.set(key, 'saltwater' as TerrainType);
+      coordIndex++;
     }
 
+    console.log(`✅ Island created: Land clustered at center, ocean surrounds edges`);
     return assignment;
   }
 
   // Cluster a target tile-count map into center-biased square blocks while preserving exact counts.
+  // CREATES AN ISLAND: All land and freshwater tiles clustered in center, saltwater forms ocean around edges
   // Input: tileCounts keyed by TerrainType name (number of tiles desired).
   // Output: Map of "x,z" -> TerrainType with exactly mapSize*mapSize entries (fills remaining with saltwater).
   private clusterMapFromCounts(tileCountsInput: { [key: string]: number }): Map<string, TerrainType> {
@@ -1876,97 +2598,87 @@ export class SquareMapComponent implements AfterViewInit {
 
     const result = new Map<string, TerrainType>();
 
-    // Helper to mark a block occupied and write results
-    const occupyBlock = (tx: number, tz: number, s: number, biome: TerrainType) => {
-      for (let oz = 0; oz < s; oz++) {
-        for (let ox = 0; ox < s; ox++) {
-          const gx = tx + ox;
-          const gz = tz + oz;
-          occupied[gz][gx] = true;
-          const worldX = gx - halfSize;
-          const worldZ = gz - halfSize;
-          result.set(`${worldX},${worldZ}`, biome);
-        }
-      }
-    };
-
-    // Candidate generator for a given block size s (returns top-left coordinates sorted by block-center distance to map center)
-    const generateCandidates = (s: number) => {
-      const candidates: { tx: number; tz: number; dist: number }[] = [];
-      for (let tz = 0; tz <= mapSize - s; tz++) {
-        for (let tx = 0; tx <= mapSize - s; tx++) {
-          const centerGX = tx + (s - 1) / 2;
-          const centerGZ = tz + (s - 1) / 2;
-          const dx = centerGX - halfSize;
-          const dz = centerGZ - halfSize;
-          const dist = Math.sqrt(dx * dx + dz * dz);
-          candidates.push({ tx, tz, dist });
-        }
-      }
-      // deterministic sort: distance then tx then tz
-      candidates.sort((a, b) => a.dist - b.dist || a.tx - b.tx || a.tz - b.tz);
-      return candidates;
-    };
-
-    // Order biomes by descending target size so we place large biomes first (more visually blocky)
-    const biomeOrder = Object.keys(counts).sort((a, b) => (counts[b] || 0) - (counts[a] || 0));
-
-    for (const biomeKey of biomeOrder) {
-      let remaining = counts[biomeKey];
-      if (remaining <= 0) continue;
-      const biome = biomeKey as TerrainType;
-
-      // Place blocks until we've satisfied the remaining count for this biome
-      while (remaining > 0) {
-        // Start with the largest square block possible
-        let maxS = Math.floor(Math.sqrt(remaining));
-        if (maxS < 1) maxS = 1;
-
-        let placed = false;
-        for (let s = maxS; s >= 1; s--) {
-          // Generate candidate positions for this s
-          const candidates = generateCandidates(s);
-          for (const cand of candidates) {
-            // Check occupancy for this block
-            let ok = true;
-            for (let oz = 0; oz < s && ok; oz++) {
-              for (let ox = 0; ox < s; ox++) {
-                if (occupied[cand.tz + oz][cand.tx + ox]) { ok = false; break; }
-              }
-            }
-            if (!ok) continue;
-
-            // Place block
-            occupyBlock(cand.tx, cand.tz, s, biome);
-            remaining -= s * s;
-            placed = true;
-            break; // placed one block, recompute remaining and try again
-          }
-          if (placed) break; // restart with new maxS
-        }
-
-        // If we couldn't place any block of any size (very crowded), find any single empty tile and place it
-        if (!placed) {
-          let found = false;
-          for (let gz = 0; gz < mapSize && !found; gz++) {
-            for (let gx = 0; gx < mapSize && !found; gx++) {
-              if (!occupied[gz][gx]) {
-                occupyBlock(gx, gz, 1, biome);
-                remaining -= 1;
-                found = true;
-              }
-            }
-          }
-          if (!found) {
-            // No space left; abort (shouldn't happen) and break
-            console.warn('clusterMapFromCounts: no space to place remaining tiles for', biomeKey, 'remaining=', remaining);
-            break;
-          }
-        }
+    // STEP 1: Create a list of all tiles sorted by distance from center (closest first)
+    const allTiles: { gx: number; gz: number; worldX: number; worldZ: number; dist: number }[] = [];
+    for (let gz = 0; gz < mapSize; gz++) {
+      for (let gx = 0; gx < mapSize; gx++) {
+        const worldX = gx - halfSize;
+        const worldZ = gz - halfSize;
+        const dist = Math.sqrt(worldX * worldX + worldZ * worldZ);
+        allTiles.push({ gx, gz, worldX, worldZ, dist });
       }
     }
+    // Sort by distance from center (closest tiles first)
+    allTiles.sort((a, b) => a.dist - b.dist || a.gx - b.gx || a.gz - b.gz);
 
-    // Fill any unassigned tiles with saltwater
+    // STEP 2: Separate land/freshwater from saltwater counts
+    const landAndFreshwaterCounts: { [key: string]: number } = {};
+    let totalLandAndFreshwater = 0;
+    
+    Object.keys(counts).forEach(k => {
+      if (k !== 'saltwater') {
+        landAndFreshwaterCounts[k] = counts[k] || 0;
+        totalLandAndFreshwater += counts[k] || 0;
+      }
+    });
+    
+    const saltwaterCount = counts['saltwater'] || 0;
+    
+    console.log(`Island formation: ${totalLandAndFreshwater} land/freshwater tiles at center, ${saltwaterCount} saltwater tiles at edges`);
+
+    // STEP 3: Assign tiles based on distance from center
+    // Mountains in center, deserts at island edge, other biomes in between
+    
+    // Define biome priority by distance from center (innermost to outermost)
+    const biomeDistancePriority: TerrainType[] = [
+      'mountains',           // Innermost - center of island
+      'tundra',
+      'borealForest',
+      'temperateForest',
+      'tropicalRainforest',
+      'freshwater',          // Lakes and rivers
+      'temperateGrassland',
+      'savanna',
+      'pastureland',
+      'cropland',
+      'scrub',
+      'urban',
+      'deserts'              // Outermost - edge of island (like beaches/sand)
+    ];
+    
+    let tileIndex = 0;
+    
+    // Place biomes from center outward according to priority
+    for (const biomeKey of biomeDistancePriority) {
+      if (!landAndFreshwaterCounts[biomeKey]) continue; // Skip if this biome has 0 tiles
+      
+      let remaining = landAndFreshwaterCounts[biomeKey] || 0;
+      const biome = biomeKey as TerrainType;
+      
+      while (remaining > 0 && tileIndex < allTiles.length) {
+        const tile = allTiles[tileIndex];
+        const key = `${tile.worldX},${tile.worldZ}`;
+        result.set(key, biome);
+        occupied[tile.gz][tile.gx] = true;
+        remaining--;
+        tileIndex++;
+      }
+      
+      if (remaining > 0) {
+        console.warn(`Could not place all ${biomeKey} tiles, ${remaining} remaining`);
+      }
+    }
+    
+    // STEP 4: Fill remaining tiles (the outer ring) with saltwater
+    while (tileIndex < allTiles.length) {
+      const tile = allTiles[tileIndex];
+      const key = `${tile.worldX},${tile.worldZ}`;
+      result.set(key, 'saltwater' as TerrainType);
+      occupied[tile.gz][tile.gx] = true;
+      tileIndex++;
+    }
+
+    // Fill any remaining unassigned tiles with saltwater (safety net)
     const salt = 'saltwater' as TerrainType;
     for (let gz = 0; gz < mapSize; gz++) {
       for (let gx = 0; gx < mapSize; gx++) {
@@ -1988,6 +2700,7 @@ export class SquareMapComponent implements AfterViewInit {
     try {
       const debugCounts = Object.assign({}, counts);
       console.log('clusterMapFromCounts final counts:', debugCounts);
+      console.log('Island clustering: All land and freshwater tiles placed toward center');
       // Commit the final counts used by clustering back to component state so
       // quota reporting matches the actual placements the clustering performed.
       this.biomeQuotas = Object.assign({}, counts) as Record<TerrainType, number>;

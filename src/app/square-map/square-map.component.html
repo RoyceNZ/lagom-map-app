@@ -1,7 +1,90 @@
 <div class="square-map-container">
   <div #rendererContainer id="rendererContainer"></div>
+  
+  <!-- Hover Tooltip -->
+  <div class="hover-tooltip" *ngIf="hoveredTileInfo">
+    <div class="tooltip-biome">{{ hoveredTileInfo.biome }}</div>
+    <div class="tooltip-coords">Position: ({{ hoveredTileInfo.x }}, {{ hoveredTileInfo.z }})</div>
+  </div>
+  
   <div class="filters">
     
+        <!-- Terrain Generation Controls -->
+    <div class="terrain-controls" style="margin-bottom: 20px; padding: 15px; background: #f1f8ff; border-radius: 8px; border: 2px solid #b3d9ff;">
+      <h4 style="margin-top: 0; margin-bottom: 15px; color: #2c5aa0; text-align: center;">🗺️ Natural Terrain Generation</h4>
+      
+        <div style="display: flex; flex-direction: column; gap: 12px;">
+        <!-- Earth Quota (always enforced) -->
+        <div style="background: white; padding: 12px; border-radius: 4px; border: 1px solid #ddd;">
+          <div style="font-weight: 600; color: #2c5aa0;">🌍 Enforce Earth-Based Biome Percentages (always on)</div>
+          <div style="font-size: 12px; color: #666; margin-top: 4px;">
+            The map enforces exact Earth percentages and applies clustering to preserve natural appearance.
+          </div>
+        </div>
+
+       
+    </div>
+    
+  
+    <!-- Population-Based Map Sizing -->
+    <div class="population-controls">
+      <h4>Population-Based Map Sizing</h4>
+      <label>
+        <input type="checkbox" [(ngModel)]="usePopulationSizing" (change)="updateMap()" />
+        Use Population-Based Map Size
+      </label>
+      <label>
+        Year:
+        <input type="number" min="1800" max="2050" [(ngModel)]="selectedYear" (input)="updateMap()" />
+      </label>
+      <div class="population-info" *ngIf="usePopulationSizing">
+        <small>
+          <strong>Population in {{ selectedYear }}: {{ getWorldPopulation(selectedYear).toLocaleString() }}</strong><br><br>
+          
+          <strong>Total Earth Surface Per Person:</strong><br>
+          • Total area (inc. oceans): {{ totalAreaPerPerson.toLocaleString() }} m²<br>
+          • Ocean area: {{ oceanAreaPerPerson.toLocaleString() }} m² (70.9%)<br>
+          • Total land area: {{ squareMetersPerPerson.toLocaleString() }} m² (29.1%)<br><br>
+          
+          <strong>Biome Breakdown Per Person:</strong><br>
+          • Saltwater (oceans/seas): {{ landBreakdownPerPerson['saltwater'].toLocaleString() }} m²<br>
+          • Freshwater (lakes/rivers): {{ landBreakdownPerPerson['freshwater'].toLocaleString() }} m²<br>
+          • Boreal Forest: {{ landBreakdownPerPerson['borealForest'].toLocaleString() }} m²<br>
+          • Temperate Forest: {{ landBreakdownPerPerson['temperateForest'].toLocaleString() }} m²<br>
+          • Tropical Rainforest: {{ landBreakdownPerPerson['tropicalRainforest'].toLocaleString() }} m²<br>
+          • Temperate Grassland: {{ landBreakdownPerPerson['temperateGrassland'].toLocaleString() }} m²<br>
+          • Savanna: {{ landBreakdownPerPerson['savanna'].toLocaleString() }} m²<br>
+          • Tundra: {{ landBreakdownPerPerson['tundra'].toLocaleString() }} m²<br>
+          • Deserts: {{ landBreakdownPerPerson['deserts'].toLocaleString() }} m²<br>
+          • Mountains: {{ landBreakdownPerPerson['mountains'].toLocaleString() }} m²<br>
+          • Pastureland: {{ landBreakdownPerPerson['pastureland'].toLocaleString() }} m²<br>
+          • Cropland: {{ landBreakdownPerPerson['cropland'].toLocaleString() }} m²<br>
+          • Scrub: {{ landBreakdownPerPerson['scrub'].toLocaleString() }} m²<br>
+          • Urban Areas: {{ landBreakdownPerPerson['urban'].toLocaleString() }} m²<br><br>
+          
+          <strong style="color: #ff6b35;">Actually usable for living: {{ usableAreaPerPerson.toLocaleString() }} m² (~11% of land)</strong><br><br>
+          
+          <strong>Natural Island Terrain Layout:</strong><br>
+          • <span style="color: #4682B4;">Ocean & Lakes</span> → Blue water terrain (outer ocean + inland lakes/rivers)<br>
+          • <span style="color: #D2691E;">Coastal Deserts</span> → Sandy beaches and arid coastal zones<br>
+          • <span style="color: #228B22;">Temperate Forests</span> → Dense green forest zones<br>
+          • <span style="color: #90EE90;">Grasslands & Pastures</span> → Green meadows and agricultural valleys<br>
+          • <span style="color: #696969;">Mountains & Peaks</span> → Rocky highland terrain<br>
+          • <span style="color: #8B4513;">Cropland & Valleys</span> → Brown agricultural and valley terrain<br>
+          • <span style="color: #2F4F4F;">Urban Centers</span> → Stone urban development<br><br>
+          
+          <strong>Map Visualization:</strong><br>
+          • Each tile: 1m × 1m<br>
+          • Map size: {{ populationBasedMapSize }}×{{ populationBasedMapSize }} tiles<br>
+          • Represents: {{ (populationBasedMapSize * populationBasedMapSize).toLocaleString() }} m² (1:1 scale)<br>
+          • Total Earth surface per person: {{ totalAreaPerPerson.toLocaleString() }} m² (includes oceans, land, everything)<br>
+          • Scale: **TRUE 1:1 SCALE** - Each map square meter = 1 real square meter of your Earth share!
+        </small>
+      </div>
+    </div>
+    
+      
+    </div>
     <!-- Map Legend -->
     <div class="map-legend" style="margin-bottom: 20px; padding: 15px; background: #f8f9fa; border-radius: 8px; border: 2px solid #dee2e6;">
       <h4 style="margin-top: 0; margin-bottom: 15px; color: #495057; text-align: center;">🗺️ Biome & Terrain Legend</h4>
@@ -266,80 +349,5 @@
       </div>
     </div>
 
-    <!-- Terrain Generation Controls -->
-    <div class="terrain-controls" style="margin-bottom: 20px; padding: 15px; background: #f1f8ff; border-radius: 8px; border: 2px solid #b3d9ff;">
-      <h4 style="margin-top: 0; margin-bottom: 15px; color: #2c5aa0; text-align: center;">🗺️ Natural Terrain Generation</h4>
-      
-        <div style="display: flex; flex-direction: column; gap: 12px;">
-        <!-- Earth Quota (always enforced) -->
-        <div style="background: white; padding: 12px; border-radius: 4px; border: 1px solid #ddd;">
-          <div style="font-weight: 600; color: #2c5aa0;">🌍 Enforce Earth-Based Biome Percentages (always on)</div>
-          <div style="font-size: 12px; color: #666; margin-top: 4px;">
-            The map enforces exact Earth percentages and applies clustering to preserve natural appearance.
-          </div>
-        </div>
 
-       
-    </div>
-    
-  
-    <!-- Population-Based Map Sizing -->
-    <div class="population-controls">
-      <h4>Population-Based Map Sizing</h4>
-      <label>
-        <input type="checkbox" [(ngModel)]="usePopulationSizing" (change)="updateMap()" />
-        Use Population-Based Map Size
-      </label>
-      <label>
-        Year:
-        <input type="number" min="1800" max="2050" [(ngModel)]="selectedYear" (input)="updateMap()" />
-      </label>
-      <div class="population-info" *ngIf="usePopulationSizing">
-        <small>
-          <strong>Population in {{ selectedYear }}: {{ getWorldPopulation(selectedYear).toLocaleString() }}</strong><br><br>
-          
-          <strong>Total Earth Surface Per Person:</strong><br>
-          • Total area (inc. oceans): {{ totalAreaPerPerson.toLocaleString() }} m²<br>
-          • Ocean area: {{ oceanAreaPerPerson.toLocaleString() }} m² (70.9%)<br>
-          • Total land area: {{ squareMetersPerPerson.toLocaleString() }} m² (29.1%)<br><br>
-          
-          <strong>Biome Breakdown Per Person:</strong><br>
-          • Saltwater (oceans/seas): {{ landBreakdownPerPerson['saltwater'].toLocaleString() }} m²<br>
-          • Freshwater (lakes/rivers): {{ landBreakdownPerPerson['freshwater'].toLocaleString() }} m²<br>
-          • Boreal Forest: {{ landBreakdownPerPerson['borealForest'].toLocaleString() }} m²<br>
-          • Temperate Forest: {{ landBreakdownPerPerson['temperateForest'].toLocaleString() }} m²<br>
-          • Tropical Rainforest: {{ landBreakdownPerPerson['tropicalRainforest'].toLocaleString() }} m²<br>
-          • Temperate Grassland: {{ landBreakdownPerPerson['temperateGrassland'].toLocaleString() }} m²<br>
-          • Savanna: {{ landBreakdownPerPerson['savanna'].toLocaleString() }} m²<br>
-          • Tundra: {{ landBreakdownPerPerson['tundra'].toLocaleString() }} m²<br>
-          • Deserts: {{ landBreakdownPerPerson['deserts'].toLocaleString() }} m²<br>
-          • Mountains: {{ landBreakdownPerPerson['mountains'].toLocaleString() }} m²<br>
-          • Pastureland: {{ landBreakdownPerPerson['pastureland'].toLocaleString() }} m²<br>
-          • Cropland: {{ landBreakdownPerPerson['cropland'].toLocaleString() }} m²<br>
-          • Scrub: {{ landBreakdownPerPerson['scrub'].toLocaleString() }} m²<br>
-          • Urban Areas: {{ landBreakdownPerPerson['urban'].toLocaleString() }} m²<br><br>
-          
-          <strong style="color: #ff6b35;">Actually usable for living: {{ usableAreaPerPerson.toLocaleString() }} m² (~11% of land)</strong><br><br>
-          
-          <strong>Natural Island Terrain Layout:</strong><br>
-          • <span style="color: #4682B4;">Ocean & Lakes</span> → Blue water terrain (outer ocean + inland lakes/rivers)<br>
-          • <span style="color: #D2691E;">Coastal Deserts</span> → Sandy beaches and arid coastal zones<br>
-          • <span style="color: #228B22;">Temperate Forests</span> → Dense green forest zones<br>
-          • <span style="color: #90EE90;">Grasslands & Pastures</span> → Green meadows and agricultural valleys<br>
-          • <span style="color: #696969;">Mountains & Peaks</span> → Rocky highland terrain<br>
-          • <span style="color: #8B4513;">Cropland & Valleys</span> → Brown agricultural and valley terrain<br>
-          • <span style="color: #2F4F4F;">Urban Centers</span> → Stone urban development<br><br>
-          
-          <strong>Map Visualization:</strong><br>
-          • Each tile: 1m × 1m<br>
-          • Map size: {{ populationBasedMapSize }}×{{ populationBasedMapSize }} tiles<br>
-          • Represents: {{ (populationBasedMapSize * populationBasedMapSize).toLocaleString() }} m² (1:1 scale)<br>
-          • Total Earth surface per person: {{ totalAreaPerPerson.toLocaleString() }} m² (includes oceans, land, everything)<br>
-          • Scale: **TRUE 1:1 SCALE** - Each map square meter = 1 real square meter of your Earth share!
-        </small>
-      </div>
-    </div>
-    
-      
-    </div>
   </div>
