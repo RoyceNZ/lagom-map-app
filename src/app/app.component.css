@@ -1,0 +1,8 @@
+
+
+/* Ensure full viewport coverage */
+:host {
+  display: block;
+  height: 100vh;
+  overflow: hidden;
+}

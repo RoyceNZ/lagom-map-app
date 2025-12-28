@@ -1,5 +1,6 @@
 import { Component } from '@angular/core';
 import { SquareMapComponent } from './square-map/square-map.component';
+
 @Component({
   selector: 'app-root',
   imports: [SquareMapComponent],
