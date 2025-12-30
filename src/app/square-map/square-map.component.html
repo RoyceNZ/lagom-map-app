@@ -349,5 +349,114 @@
       </div>
     </div>
 
+    <!-- Person Controls -->
+    <div class="person-controls" style="margin-bottom: 20px; padding: 15px; background: #fff3e0; border-radius: 8px; border: 2px solid #ffb74d;">
+      <h4 style="margin-top: 0; margin-bottom: 15px; color: #e65100; text-align: center;">👤 Person Model (1:1 Scale)</h4>
+      
+      <div style="display: flex; flex-direction: column; gap: 12px;">
+        <!-- Show/Hide Person -->
+        <div style="background: white; padding: 12px; border-radius: 4px; border: 1px solid #ddd;">
+          <label style="display: flex; align-items: center; cursor: pointer;">
+            <input type="checkbox" [(ngModel)]="showPerson" (change)="togglePerson()" style="margin-right: 8px;" />
+            <span style="font-weight: 600; color: #e65100;">Show Person on Map</span>
+          </label>
+        </div>
+
+        <!-- Person Height -->
+        <div style="background: white; padding: 12px; border-radius: 4px; border: 1px solid #ddd;">
+          <label style="font-weight: 600; color: #e65100; display: block; margin-bottom: 8px;">
+            Height: {{ personHeight.toFixed(2) }}m
+          </label>
+          <input 
+            type="range" 
+            min="1.4" 
+            max="2.1" 
+            step="0.01" 
+            [(ngModel)]="personHeight" 
+            (input)="updatePerson()"
+            style="width: 100%;" 
+          />
+          <div style="display: flex; justify-content: space-between; font-size: 11px; color: #666; margin-top: 4px;">
+            <span>1.4m (4'7")</span>
+            <span>2.1m (6'11")</span>
+          </div>
+        </div>
+
+        <!-- Person Gender -->
+        <div style="background: white; padding: 12px; border-radius: 4px; border: 1px solid #ddd;">
+          <label style="font-weight: 600; color: #e65100; display: block; margin-bottom: 8px;">
+            Gender (affects colors):
+          </label>
+          <div style="display: flex; gap: 12px;">
+            <label style="flex: 1; cursor: pointer;">
+              <input 
+                type="radio" 
+                name="gender" 
+                value="male" 
+                [(ngModel)]="personGender" 
+                (change)="updatePerson()"
+                style="margin-right: 6px;"
+              />
+              Male
+            </label>
+            <label style="flex: 1; cursor: pointer;">
+              <input 
+                type="radio" 
+                name="gender" 
+                value="female" 
+                [(ngModel)]="personGender" 
+                (change)="updatePerson()"
+                style="margin-right: 6px;"
+              />
+              Female
+            </label>
+          </div>
+        </div>
+
+        <!-- Person Info -->
+        <div style="background: #fff; padding: 10px; border-radius: 4px; border: 1px solid #ddd; font-size: 12px; color: #666;">
+          <strong style="color: #e65100;">Scale Reference:</strong><br>
+          The person model is rendered at true 1:1 scale on the map.<br>
+          Each tile = 1m², so you can compare the person's size to their allocated land area.<br><br>
+          <strong>Person occupies:</strong> ~0.25m² (standing footprint)<br>
+          <strong>Your land share:</strong> {{ squareMetersPerPerson.toLocaleString() }}m²
+        </div>
+
+        <!-- Movement Controls -->
+        <div style="background: white; padding: 12px; border-radius: 4px; border: 1px solid #ddd; margin-top: 12px;">
+          <label style="font-weight: 600; color: #e65100; display: block; margin-bottom: 8px;">
+            🎮 Walk & Jump Around the Map:
+          </label>
+          <div style="font-size: 12px; color: #666; line-height: 1.6;">
+            <strong>Keyboard Controls:</strong><br>
+            • <kbd style="background: #f0f0f0; padding: 2px 6px; border: 1px solid #ccc; border-radius: 3px;">W</kbd> or <kbd style="background: #f0f0f0; padding: 2px 6px; border: 1px solid #ccc; border-radius: 3px;">↑</kbd> - Move North<br>
+            • <kbd style="background: #f0f0f0; padding: 2px 6px; border: 1px solid #ccc; border-radius: 3px;">S</kbd> or <kbd style="background: #f0f0f0; padding: 2px 6px; border: 1px solid #ccc; border-radius: 3px;">↓</kbd> - Move South<br>
+            • <kbd style="background: #f0f0f0; padding: 2px 6px; border: 1px solid #ccc; border-radius: 3px;">A</kbd> or <kbd style="background: #f0f0f0; padding: 2px 6px; border: 1px solid #ccc; border-radius: 3px;">←</kbd> - Move West<br>
+            • <kbd style="background: #f0f0f0; padding: 2px 6px; border: 1px solid #ccc; border-radius: 3px;">D</kbd> or <kbd style="background: #f0f0f0; padding: 2px 6px; border: 1px solid #ccc; border-radius: 3px;">→</kbd> - Move East<br>
+            • <kbd style="background: #f0f0f0; padding: 2px 6px; border: 1px solid #ccc; border-radius: 3px;">Space</kbd> - Jump! 🦘
+          </div>
+          <div style="margin-top: 10px;">
+            <label style="font-weight: 600; color: #e65100; display: block; margin-bottom: 8px;">
+              Movement Speed: {{ personSpeed.toFixed(2) }}m/frame
+            </label>
+            <input 
+              type="range" 
+              min="0.05" 
+              max="1.0" 
+              step="0.05" 
+              [(ngModel)]="personSpeed" 
+              style="width: 100%;" 
+            />
+            <div style="display: flex; justify-content: space-between; font-size: 11px; color: #666; margin-top: 4px;">
+              <span>Slow (0.05)</span>
+              <span>Fast (1.0)</span>
+            </div>
+          </div>
+          <div style="margin-top: 8px; font-size: 11px; color: #999;">
+            Current Position: ({{ personPosition.x.toFixed(1) }}, {{ personPosition.z.toFixed(1) }})
+          </div>
+        </div>
+      </div>
+    </div>
 
   </div>

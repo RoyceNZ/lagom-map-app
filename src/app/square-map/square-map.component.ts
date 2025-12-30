@@ -7,6 +7,7 @@ import { RGBELoader } from 'three/examples/jsm/loaders/RGBELoader.js';
 import { OrbitControls } from 'three/examples/jsm/controls/OrbitControls.js';
 import * as BufferGeometryUtils from 'three/examples/jsm/utils/BufferGeometryUtils.js';
 import { RoundedBoxGeometry } from 'three/examples/jsm/geometries/RoundedBoxGeometry.js';
+import { GLTFLoader } from 'three/examples/jsm/loaders/GLTFLoader.js';
 
 // SDF (Signed Distance Field) Shader for seamless rounded biome tiles
 const sdfVertexShader = `
@@ -234,6 +235,94 @@ export class SquareMapComponent implements AfterViewInit {
   mouse = new THREE.Vector2();
   hoveredTileInfo: { biome: string; x: number; z: number } | null = null;
   highlightMesh!: THREE.Mesh;
+
+  // GLB tile models
+  tileModels: { [key: string]: THREE.Object3D } = {};
+  tileGeometries: { [key: string]: THREE.BufferGeometry } = {}; // Cache extracted geometries
+  modelsLoaded = false;
+
+  // Person object properties
+  personMesh!: THREE.Group;
+  showPerson = true;
+  personHeight = 1.75; // meters (default average height)
+  personGender: 'male' | 'female' = 'male';
+  personPosition = { x: 0, z: 0 };
+  personSpeed = 0.1; // meters per frame when key is held (slowed down)
+  keysPressed = new Set<string>();
+  
+  // Animation properties
+  walkAnimationTime = 0;
+  isWalking = false;
+  isJumping = false;
+  jumpVelocity = 0;
+  jumpSpeed = 0.3; // Initial upward velocity when jumping
+  gravity = 0.015; // Gravity pulling person back down
+  groundHeight = 0; // Current ground level
+  personBodyParts: {
+    leftLeg?: THREE.Mesh;
+    rightLeg?: THREE.Mesh;
+    leftArm?: THREE.Mesh;
+    rightArm?: THREE.Mesh;
+  } = {};
+
+  // Get the terrain height at a specific position
+  getTerrainHeightAt(x: number, z: number): number {
+    // Round to nearest integer tile coordinates
+    const tileX = Math.round(x);
+    const tileZ = Math.round(z);
+    const tileKey = `${tileX},${tileZ}`;
+    
+    // Check if we have a recorded height for this tile
+    const cachedHeight = this.originalHeights.get(tileKey);
+    if (cachedHeight !== undefined) {
+      return cachedHeight;
+    }
+    
+    // Check if we have map assignments for this position
+    if (this.lastMapAssignments) {
+      const biome = this.lastMapAssignments.get(tileKey);
+      if (biome) {
+        // Get the visual terrain type
+        const visualType = TERRAIN_VISUAL_MAPPING[biome];
+        
+        // Use the same height logic as in updateMap
+        let height = 0.1;
+        if (visualType === 'freshwater') {
+          height = 4.8;
+        } else if (visualType === 'saltwater') {
+          height = 0.1;
+        } else {
+          switch (visualType) {
+            case 'mountains': height = 8.0; break;
+            case 'tundra': height = 6.5; break;
+            case 'urban': height = 5.5; break;
+            case 'borealForest': height = 4.5; break;
+            case 'temperateForest': height = 3.5; break;
+            case 'tropicalRainforest': height = 3.0; break;
+            case 'temperateGrassland': height = 2.5; break;
+            case 'pastureland': height = 2.0; break;
+            case 'cropland': height = 1.8; break;
+            case 'savanna': height = 1.5; break;
+            case 'scrub': height = 1.0; break;
+            case 'deserts': height = 0.8; break;
+            default: height = 2.5; break;
+          }
+        }
+        
+        // Return the top surface height (where person stands)
+        if (visualType === 'saltwater') {
+          return 0;
+        } else if (visualType === 'freshwater') {
+          return height * 0.5; // Freshwater plane is at this height
+        } else {
+          return height; // Land tiles: top of box is at full height
+        }
+      }
+    }
+    
+    // Default to ground level if we don't have information
+    return 0;
+  }
 
   // Instanced meshes (one per visual terrain type) - interior tiles
   mountainsMesh!: THREE.InstancedMesh;
@@ -996,10 +1085,77 @@ export class SquareMapComponent implements AfterViewInit {
 
   ngAfterViewInit(): void {
     console.log('ngAfterViewInit called');
-    this.initScene();
-    console.log('Scene initialized');
-    this.updateMap();
-    console.log('Map update called');
+    this.loadTileModels().then(() => {
+      this.initScene();
+      console.log('Scene initialized');
+      this.updateMap();
+      console.log('Map update called');
+    });
+  }
+
+  async loadTileModels(): Promise<void> {
+    console.log('Loading tile models from tiles.glb...');
+    const loader = new GLTFLoader();
+    
+    return new Promise((resolve, reject) => {
+      loader.load(
+        'assets/tiles.glb',
+        (gltf) => {
+          console.log('GLB loaded successfully:', gltf);
+          console.log('Scene structure:', gltf.scene);
+          
+          // Extract the three tile models by name and cache their geometries
+          gltf.scene.traverse((child) => {
+            console.log('Found child:', child.name, child.type);
+            
+            if (child.name === 'center' || child.name === 'edge' || child.name === 'corner') {
+              // Store the mesh directly if it's a mesh, otherwise find the first mesh child
+              if (child instanceof THREE.Mesh) {
+                this.tileModels[child.name] = child;
+                this.tileGeometries[child.name] = child.geometry;
+                console.log(`Found ${child.name} model (Mesh) with geometry`);
+              } else {
+                // If it's a group, find the first mesh child
+                child.traverse((meshChild) => {
+                  if (meshChild instanceof THREE.Mesh && !this.tileModels[child.name]) {
+                    this.tileModels[child.name] = meshChild;
+                    this.tileGeometries[child.name] = meshChild.geometry;
+                    console.log(`Found ${child.name} model (Mesh from Group) with geometry`);
+                  }
+                });
+              }
+            }
+          });
+          
+          // Verify all three models and their geometries were found
+          const requiredModels = ['center', 'edge', 'corner'];
+          const foundModels = requiredModels.filter(name => 
+            this.tileGeometries[name] && this.tileGeometries[name].attributes['position']
+          );
+          
+          this.modelsLoaded = foundModels.length === 3;
+          
+          if (!this.modelsLoaded) {
+            console.warn('Not all models found. Found:', foundModels);
+            console.log('Available objects in scene:');
+            gltf.scene.traverse((child) => {
+              console.log(`  - ${child.type}: ${child.name || '(unnamed)'}`);
+            });
+          } else {
+            console.log('✅ All tile models loaded successfully with geometries:', foundModels);
+          }
+          
+          resolve();
+        },
+        (progress) => {
+          console.log('Loading progress:', (progress.loaded / progress.total * 100).toFixed(2) + '%');
+        },
+        (error) => {
+          console.error('Error loading GLB file:', error);
+          reject(error);
+        }
+      );
+    });
   }
 
   initScene(): void {
@@ -1025,7 +1181,8 @@ export class SquareMapComponent implements AfterViewInit {
     this.camera.position.set(180, 200, 180); // Elevated angle to see the island's topography
     console.log('Camera positioned at:', this.camera.position);
 
-    this.renderer = new THREE.WebGLRenderer({ antialias: true, logarithmicDepthBuffer: true });
+    // Note: logarithmicDepthBuffer disabled to ensure proper depth testing with custom shaders
+    this.renderer = new THREE.WebGLRenderer({ antialias: true, logarithmicDepthBuffer: false });
     this.renderer.setSize(availableWidth, availableHeight);
     this.renderer.toneMapping = THREE.ACESFilmicToneMapping
     this.renderer.shadowMap.enabled = true;
@@ -1063,14 +1220,21 @@ export class SquareMapComponent implements AfterViewInit {
       color: 0xffff00,
       transparent: true,
       opacity: 0.4,
-      side: THREE.DoubleSide
+      side: THREE.DoubleSide,
+      depthTest: true,
+      depthWrite: false // Transparent, so don't write to depth buffer
     });
     this.highlightMesh = new THREE.Mesh(highlightGeometry, highlightMaterial);
     this.highlightMesh.visible = false;
+    this.highlightMesh.renderOrder = 999; // Render on top of everything else
     this.scene.add(this.highlightMesh);
+
+    // Don't create person yet - wait until map is generated
+    // this.createPerson();
 
     this.renderer.setAnimationLoop(() => {
       controls.update();
+      this.updatePersonMovement(); // Update person position based on keyboard input
       this.renderer.render(this.scene, this.camera);
     });
 
@@ -1079,6 +1243,10 @@ export class SquareMapComponent implements AfterViewInit {
 
     // Add mouse move handler for hover detection
     this.renderer.domElement.addEventListener('mousemove', (event) => this.onMouseMove(event));
+    
+    // Add keyboard event listeners for person movement
+    window.addEventListener('keydown', (event) => this.onKeyDown(event));
+    window.addEventListener('keyup', (event) => this.onKeyUp(event));
   }
 
   onWindowResize(): void {
@@ -1093,6 +1261,294 @@ export class SquareMapComponent implements AfterViewInit {
     this.camera.aspect = availableWidth / availableHeight;
     this.camera.updateProjectionMatrix();
     this.renderer.setSize(availableWidth, availableHeight);
+  }
+
+  // Create a 3D person model at proper scale
+  createPerson(): void {
+    // Remove existing person if any
+    if (this.personMesh) {
+      this.scene.remove(this.personMesh);
+      // Dispose of geometries and materials to free memory
+      this.personMesh.traverse((child) => {
+        if (child instanceof THREE.Mesh) {
+          if (child.geometry) child.geometry.dispose();
+          if (child.material) {
+            if (Array.isArray(child.material)) {
+              child.material.forEach(mat => mat.dispose());
+            } else {
+              child.material.dispose();
+            }
+          }
+        }
+      });
+    }
+
+    // Create a group to hold all person parts
+    this.personMesh = new THREE.Group();
+    
+    // Ensure the person is in world space (not camera-relative)
+    this.personMesh.matrixAutoUpdate = true;
+
+    // Scale factor based on height (1 unit = 1 meter)
+    const heightScale = this.personHeight;
+    
+    // Define body proportions (typical human proportions)
+    const headHeight = heightScale * 0.12;
+    const headRadius = heightScale * 0.08;
+    const torsoHeight = heightScale * 0.35;
+    const torsoWidth = heightScale * 0.15;
+    const torsoDepth = heightScale * 0.1;
+    const legHeight = heightScale * 0.45;
+    const legRadius = heightScale * 0.04;
+    const armHeight = heightScale * 0.32;
+    const armRadius = heightScale * 0.03;
+
+    // Color scheme based on gender
+    const skinColor = this.personGender === 'male' ? 0xFFDBAC : 0xFFE4C4;
+    const clothingColor = this.personGender === 'male' ? 0x4A90E2 : 0xE94B3C;
+    const pantsColor = this.personGender === 'male' ? 0x2C3E50 : 0x8E44AD;
+
+    // Create head (sphere)
+    const headGeometry = new THREE.SphereGeometry(headRadius, 16, 16);
+    const headMaterial = new THREE.MeshStandardMaterial({ 
+      color: skinColor,
+      depthTest: true,
+      depthWrite: true
+    });
+    const head = new THREE.Mesh(headGeometry, headMaterial);
+    head.position.y = heightScale - headHeight / 2;
+    head.castShadow = true;
+    head.receiveShadow = true;
+    this.personMesh.add(head);
+
+    // Create torso (box)
+    const torsoGeometry = new THREE.BoxGeometry(torsoWidth, torsoHeight, torsoDepth);
+    const torsoMaterial = new THREE.MeshStandardMaterial({ 
+      color: clothingColor,
+      depthTest: true,
+      depthWrite: true
+    });
+    const torso = new THREE.Mesh(torsoGeometry, torsoMaterial);
+    torso.position.y = heightScale - headHeight * 2 - torsoHeight / 2;
+    torso.castShadow = true;
+    torso.receiveShadow = true;
+    this.personMesh.add(torso);
+
+    // Create legs (cylinders)
+    const legGeometry = new THREE.CylinderGeometry(legRadius, legRadius, legHeight, 8);
+    const legMaterial = new THREE.MeshStandardMaterial({ 
+      color: pantsColor,
+      depthTest: true,
+      depthWrite: true
+    });
+    
+    const leftLeg = new THREE.Mesh(legGeometry, legMaterial);
+    leftLeg.position.set(-torsoWidth * 0.25, legHeight / 2, 0);
+    leftLeg.castShadow = true;
+    leftLeg.receiveShadow = true;
+    this.personMesh.add(leftLeg);
+    
+    const rightLeg = new THREE.Mesh(legGeometry, legMaterial);
+    rightLeg.position.set(torsoWidth * 0.25, legHeight / 2, 0);
+    rightLeg.castShadow = true;
+    rightLeg.receiveShadow = true;
+    this.personMesh.add(rightLeg);
+
+    // Create arms (cylinders)
+    const armGeometry = new THREE.CylinderGeometry(armRadius, armRadius, armHeight, 8);
+    const armMaterial = new THREE.MeshStandardMaterial({ 
+      color: skinColor,
+      depthTest: true,
+      depthWrite: true
+    });
+    
+    const leftArm = new THREE.Mesh(armGeometry, armMaterial);
+    leftArm.position.set(-torsoWidth * 0.65, heightScale - headHeight * 2 - armHeight / 2, 0);
+    leftArm.castShadow = true;
+    leftArm.receiveShadow = true;
+    this.personMesh.add(leftArm);
+    
+    const rightArm = new THREE.Mesh(armGeometry, armMaterial);
+    rightArm.position.set(torsoWidth * 0.65, heightScale - headHeight * 2 - armHeight / 2, 0);
+    rightArm.castShadow = true;
+    rightArm.receiveShadow = true;
+    this.personMesh.add(rightArm);
+
+    // Store references to body parts for animation
+    this.personBodyParts = {
+      leftLeg: leftLeg,
+      rightLeg: rightLeg,
+      leftArm: leftArm,
+      rightArm: rightArm
+    };
+
+    // Get the terrain height at person's position
+    const terrainHeight = this.getTerrainHeightAt(this.personPosition.x, this.personPosition.z);
+    
+    console.log(`Person positioned at (${this.personPosition.x}, ${terrainHeight}, ${this.personPosition.z})`);
+    
+    // Position person on the map - place on top of terrain
+    this.personMesh.position.set(this.personPosition.x, terrainHeight, this.personPosition.z);
+    this.personMesh.visible = this.showPerson;
+    
+    // Update the world matrix to ensure proper positioning
+    this.personMesh.updateMatrixWorld(true);
+
+    // Add to scene
+    this.scene.add(this.personMesh);
+  }
+
+  // Update person when height or gender changes
+  updatePerson(): void {
+    this.createPerson();
+  }
+
+  // Toggle person visibility
+  togglePerson(): void {
+    this.showPerson = !this.showPerson;
+    if (this.personMesh) {
+      this.personMesh.visible = this.showPerson;
+    }
+  }
+
+  // Keyboard event handlers for person movement
+  onKeyDown(event: KeyboardEvent): void {
+    const key = event.key.toLowerCase();
+    
+    // Handle spacebar for jumping (only if not already jumping)
+    if (key === ' ' && !this.isJumping) {
+      this.isJumping = true;
+      this.jumpVelocity = this.jumpSpeed;
+      event.preventDefault(); // Prevent page scroll
+      return;
+    }
+    
+    // Add key to pressed set
+    this.keysPressed.add(key);
+  }
+
+  onKeyUp(event: KeyboardEvent): void {
+    // Remove key from pressed set
+    this.keysPressed.delete(event.key.toLowerCase());
+  }
+
+  // Update person position based on keyboard input (called every frame)
+  updatePersonMovement(): void {
+    if (!this.personMesh || !this.showPerson) return;
+
+    let moved = false;
+    const originalX = this.personPosition.x;
+    const originalZ = this.personPosition.z;
+
+    // WASD or Arrow keys for movement
+    if (this.keysPressed.has('w') || this.keysPressed.has('arrowup')) {
+      this.personPosition.z -= this.personSpeed; // Move north (negative Z)
+      moved = true;
+    }
+    if (this.keysPressed.has('s') || this.keysPressed.has('arrowdown')) {
+      this.personPosition.z += this.personSpeed; // Move south (positive Z)
+      moved = true;
+    }
+    if (this.keysPressed.has('a') || this.keysPressed.has('arrowleft')) {
+      this.personPosition.x -= this.personSpeed; // Move west (negative X)
+      moved = true;
+    }
+    if (this.keysPressed.has('d') || this.keysPressed.has('arrowright')) {
+      this.personPosition.x += this.personSpeed; // Move east (positive X)
+      moved = true;
+    }
+
+    // Keep person within map bounds
+    const halfSize = this.mapHalfSize || 125;
+    this.personPosition.x = Math.max(-halfSize, Math.min(halfSize - 1, this.personPosition.x));
+    this.personPosition.z = Math.max(-halfSize, Math.min(halfSize - 1, this.personPosition.z));
+
+    // Get terrain height at current position
+    const terrainHeight = this.getTerrainHeightAt(this.personPosition.x, this.personPosition.z);
+    this.groundHeight = terrainHeight;
+
+    // Handle jumping physics
+    let currentHeight = terrainHeight;
+    if (this.isJumping) {
+      // Apply jump velocity
+      currentHeight = this.personMesh.position.y + this.jumpVelocity;
+      
+      // Apply gravity
+      this.jumpVelocity -= this.gravity;
+      
+      // Check if landed back on ground
+      if (currentHeight <= terrainHeight) {
+        currentHeight = terrainHeight;
+        this.isJumping = false;
+        this.jumpVelocity = 0;
+      }
+    }
+    
+    // Update person mesh position (with jump height)
+    this.personMesh.position.set(this.personPosition.x, currentHeight, this.personPosition.z);
+    
+    // Rotate person to face direction of movement
+    if (moved && (originalX !== this.personPosition.x || originalZ !== this.personPosition.z)) {
+      const deltaX = this.personPosition.x - originalX;
+      const deltaZ = this.personPosition.z - originalZ;
+      const angle = Math.atan2(deltaX, -deltaZ); // Negative Z because -Z is forward
+      this.personMesh.rotation.y = angle;
+    }
+
+    // Set walking state (can walk while in air)
+    if (moved) {
+      this.isWalking = true;
+    } else {
+      // Not moving - stop walking animation
+      this.isWalking = false;
+      this.resetWalkingPose();
+    }
+
+    // Update walking animation if person is moving
+    if (this.isWalking) {
+      this.animateWalking();
+    }
+  }
+
+  // Animate walking motion (swinging arms and legs)
+  animateWalking(): void {
+    if (!this.personBodyParts.leftLeg || !this.personBodyParts.rightLeg || 
+        !this.personBodyParts.leftArm || !this.personBodyParts.rightArm) {
+      return;
+    }
+
+    // Increment animation time based on speed (increased from 0.15 to 0.5 for faster stepping)
+    this.walkAnimationTime += this.personSpeed * 3;
+
+    // Calculate swing angles using sine wave
+    const swingAngle = Math.sin(this.walkAnimationTime) * 0.5; // Max 0.5 radians (~28 degrees)
+
+    // Legs swing opposite to each other
+    this.personBodyParts.leftLeg.rotation.x = swingAngle;
+    this.personBodyParts.rightLeg.rotation.x = -swingAngle;
+
+    // Arms swing opposite to legs (left arm forward when right leg forward)
+    this.personBodyParts.leftArm.rotation.x = -swingAngle * 0.7; // Arms swing less than legs
+    this.personBodyParts.rightArm.rotation.x = swingAngle * 0.7;
+  }
+
+  // Reset limbs to neutral position when not walking
+  resetWalkingPose(): void {
+    if (!this.personBodyParts.leftLeg || !this.personBodyParts.rightLeg || 
+        !this.personBodyParts.leftArm || !this.personBodyParts.rightArm) {
+      return;
+    }
+
+    // Smoothly return to neutral pose
+    this.personBodyParts.leftLeg.rotation.x *= 0.9;
+    this.personBodyParts.rightLeg.rotation.x *= 0.9;
+    this.personBodyParts.leftArm.rotation.x *= 0.9;
+    this.personBodyParts.rightArm.rotation.x *= 0.9;
+
+    // Reset animation time when stopped
+    if (Math.abs(this.personBodyParts.leftLeg.rotation.x) < 0.01) {
+      this.walkAnimationTime = 0;
+    }
   }
 
   // Create a shader material with vertex-based beveling for selective edge rounding
@@ -1243,7 +1699,9 @@ export class SquareMapComponent implements AfterViewInit {
         }
       `,
       lights: false,
-      side: THREE.FrontSide
+      side: THREE.FrontSide,
+      depthTest: true,
+      depthWrite: true
     });
   }
 
@@ -1327,7 +1785,8 @@ export class SquareMapComponent implements AfterViewInit {
       transparent: true,
       lights: false,
       side: THREE.FrontSide,
-      depthWrite: true
+      depthTest: true,
+      depthWrite: false  // Water is transparent, so don't write to depth buffer
     });
   }
 
@@ -2031,27 +2490,24 @@ export class SquareMapComponent implements AfterViewInit {
           }
         }
         
+        // Store the height for this tile (for person positioning)
+        // The top surface of the terrain (where person stands) is at the full height value
+        const actualHeight = (terrainType === 'saltwater') ? 0 : 
+                            (terrainType === 'freshwater') ? height * 0.5 : 
+                            height; // Full height for land tiles (top of the box)
+        this.originalHeights.set(key, actualHeight);
+        
         // Create geometry for this tile
         let tileGeometry: THREE.BufferGeometry;
         
-        if (terrainType === 'saltwater' || terrainType === 'freshwater') {
-          // Water uses flat plane
-          // Saltwater at ground level (y=0), Freshwater uses its height variable
-          const waterHeight = terrainType === 'saltwater' ? 0 : (height * 0.5);
-          tileGeometry = new THREE.PlaneGeometry(1.0, 1.0);
-          tileGeometry.rotateX(-Math.PI / 2);
-          tileGeometry.translate(posX, waterHeight, posZ);
-        } else {
-          // Land tiles - check if perimeter and get edge rounding
-          const edgeRounding = getEdgeRounding(x, z, logical, mapAssignments);
-          
-          // Always use createSelectivelyRoundedBox which adds the edgeRounding attribute
-          // For non-perimeter tiles, all flags will be 0.0 (no rounding)
-          tileGeometry = createSelectivelyRoundedBox(1.0, height, 1.0, edgeRounding, this.cornerRadius * 5);
-          
-          // Position the land geometry
-          tileGeometry.translate(posX, height * 0.5, posZ);
-        }
+        // Determine edge rounding based on neighbors
+        const edgeRounding = getEdgeRounding(x, z, logical, mapAssignments);
+        
+        // Create the tile geometry using procedural approach
+        tileGeometry = createSelectivelyRoundedBox(1.0, height, 1.0, edgeRounding, this.cornerRadius * 5);
+        
+        // Position the geometry at the tile center
+        tileGeometry.translate(posX, height * 0.5, posZ);
         
         // Ensure geometry has proper attributes for merging
         if (!tileGeometry.attributes['normal']) {
@@ -2342,6 +2798,13 @@ export class SquareMapComponent implements AfterViewInit {
     
     console.log('Map update completed successfully');
     this.isUpdating = false;
+    
+    // Create or update person position after map is generated
+    if (!this.personMesh) {
+      this.createPerson();
+    } else {
+      this.updatePerson();
+    }
   }
 
   reassignTileToMesh(tileX: number, tileZ: number, targetTerrainType: VisualTerrainType): void {
