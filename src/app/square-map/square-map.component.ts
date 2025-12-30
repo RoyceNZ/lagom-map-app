@@ -241,6 +241,10 @@ export class SquareMapComponent implements AfterViewInit {
   tileGeometries: { [key: string]: THREE.BufferGeometry } = {}; // Cache extracted geometries
   modelsLoaded = false;
 
+  // Water animation
+  waterTime = 0;
+  waterMeshes: THREE.Mesh[] = []; // Store all freshwater meshes for animation
+
   // Person object properties
   personMesh!: THREE.Group;
   showPerson = true;
@@ -288,7 +292,7 @@ export class SquareMapComponent implements AfterViewInit {
         // Use the same height logic as in updateMap
         let height = 0.1;
         if (visualType === 'freshwater') {
-          height = 4.8;
+          height = 2.4;
         } else if (visualType === 'saltwater') {
           height = 0.1;
         } else {
@@ -1235,6 +1239,16 @@ export class SquareMapComponent implements AfterViewInit {
     this.renderer.setAnimationLoop(() => {
       controls.update();
       this.updatePersonMovement(); // Update person position based on keyboard input
+      
+      // Update water animation
+      this.waterTime += 0.016; // Approximately 60fps
+      this.waterMeshes.forEach(mesh => {
+        const material = mesh.material as THREE.ShaderMaterial;
+        if (material.uniforms && material.uniforms['time']) {
+          material.uniforms['time'].value = this.waterTime;
+        }
+      });
+      
       this.renderer.render(this.scene, this.camera);
     });
 
@@ -1790,6 +1804,124 @@ export class SquareMapComponent implements AfterViewInit {
     });
   }
 
+  createAnimatedWaterMaterial(
+    textureMap: THREE.Texture, 
+    materialColor: number, 
+    envMap: THREE.Texture,
+    opacity: number
+  ): THREE.ShaderMaterial {
+    return new THREE.ShaderMaterial({
+      uniforms: {
+        map: { value: textureMap },
+        envMap: { value: envMap },
+        envMapIntensity: { value: 0.5 },
+        color: { value: new THREE.Color(materialColor) },
+        opacity: { value: opacity },
+        time: { value: 0 } // For animation
+      },
+      vertexShader: `
+        uniform float time;
+        varying vec2 vUv;
+        varying vec3 vNormal;
+        varying vec3 vWorldPosition;
+        varying vec3 vViewPosition;
+        
+        void main() {
+          vUv = uv;
+          
+          // Create animated waves
+          vec3 pos = position;
+          float wave1 = sin(pos.x * 2.0 + time * 2.0) * 0.05;
+          float wave2 = sin(pos.z * 3.0 + time * 1.5) * 0.03;
+          float wave3 = sin((pos.x + pos.z) * 1.5 + time * 2.5) * 0.04;
+          pos.y += wave1 + wave2 + wave3;
+          
+          // Calculate animated normal for lighting
+          float dx = cos(pos.x * 2.0 + time * 2.0) * 0.1;
+          float dz = cos(pos.z * 3.0 + time * 1.5) * 0.09;
+          vec3 animatedNormal = normalize(vec3(-dx, 1.0, -dz));
+          vNormal = normalize(normalMatrix * animatedNormal);
+          
+          vec4 worldPosition = modelMatrix * vec4(pos, 1.0);
+          vWorldPosition = worldPosition.xyz;
+          
+          vec4 mvPosition = viewMatrix * worldPosition;
+          vViewPosition = mvPosition.xyz;
+          gl_Position = projectionMatrix * mvPosition;
+        }
+      `,
+      fragmentShader: `
+        uniform sampler2D map;
+        uniform samplerCube envMap;
+        uniform vec3 color;
+        uniform float envMapIntensity;
+        uniform float opacity;
+        uniform float time;
+        
+        varying vec2 vUv;
+        varying vec3 vNormal;
+        varying vec3 vWorldPosition;
+        varying vec3 vViewPosition;
+        
+        void main() {
+          // Animate UV coordinates for flowing water effect
+          vec2 uv1 = vUv + vec2(time * 0.02, time * 0.01);
+          vec2 uv2 = vUv + vec2(-time * 0.015, time * 0.025);
+          
+          vec4 texColor1 = texture2D(map, uv1);
+          vec4 texColor2 = texture2D(map, uv2);
+          vec4 texColor = mix(texColor1, texColor2, 0.5);
+          
+          // Enhanced lighting with animated normal
+          vec3 normal = normalize(vNormal);
+          
+          // Main directional light (sun-like)
+          vec3 mainLightDir = normalize(vec3(0.5, 1.5, 0.8));
+          float mainDiffuse = max(dot(normal, mainLightDir), 0.0);
+          
+          // Fill light
+          vec3 fillLightDir = normalize(vec3(-0.3, 0.5, -0.4));
+          float fillDiffuse = max(dot(normal, fillLightDir), 0.0) * 0.3;
+          
+          // Rim light
+          vec3 rimLightDir = normalize(vec3(0.0, 1.0, -0.5));
+          float rimDiffuse = max(dot(normal, rimLightDir), 0.0) * 0.2;
+          
+          // Combine lighting with slight pulsing effect
+          float totalDiffuse = mainDiffuse + fillDiffuse + rimDiffuse;
+          float ambient = 0.55 + sin(time * 0.5) * 0.05; // Subtle pulsing ambient
+          float lighting = ambient + totalDiffuse * 0.7;
+          lighting = clamp(lighting, 0.0, 1.3);
+          
+          // Enhanced water reflections
+          vec3 viewDir = normalize(cameraPosition - vWorldPosition);
+          vec3 reflectDir = reflect(-viewDir, normal);
+          vec4 envColor = textureCube(envMap, reflectDir);
+          
+          // Fresnel effect for more realistic water
+          float fresnelTerm = pow(1.0 - max(dot(viewDir, normal), 0.0), 3.0);
+          float reflectionStrength = mix(envMapIntensity * 0.3, envMapIntensity * 0.9, fresnelTerm);
+          
+          // Combine texture, color, lighting, and reflections
+          vec3 finalColor = texColor.rgb * color * lighting;
+          finalColor = mix(finalColor, envColor.rgb, reflectionStrength);
+          
+          // Add slight shimmer effect
+          float shimmer = sin(vWorldPosition.x * 10.0 + time * 3.0) * 
+                         sin(vWorldPosition.z * 10.0 + time * 2.5) * 0.1;
+          finalColor += vec3(shimmer * 0.2);
+          
+          gl_FragColor = vec4(finalColor, opacity);
+        }
+      `,
+      transparent: true,
+      lights: false,
+      side: THREE.DoubleSide,
+      depthTest: true,
+      depthWrite: false
+    });
+  }
+
   onMouseMove(event: MouseEvent): void {
     // Calculate mouse position in normalized device coordinates (-1 to +1)
     const rect = this.renderer.domElement.getBoundingClientRect();
@@ -1861,6 +1993,9 @@ export class SquareMapComponent implements AfterViewInit {
     
     this.isUpdating = true;
     console.log('Starting map update...');
+    
+    // Clear water meshes array for new map
+    this.waterMeshes = [];
     
     // Clear and regenerate the scene
     this.scene.clear();
@@ -2462,6 +2597,13 @@ export class SquareMapComponent implements AfterViewInit {
         terrainCounts[terrainType] = (terrainCounts[terrainType] || 0) + 1;
         logicalTerrainCounts[logical] = (logicalTerrainCounts[logical] || 0) + 1;
         
+        // Skip creating individual geometries for saltwater - we'll create one large plane later
+        if (terrainType === 'saltwater') {
+          // Store height for person positioning
+          this.originalHeights.set(key, 0);
+          continue;
+        }
+        
         // Position at tile center
         const posX = x + 0.5;
         const posZ = z + 0.5;
@@ -2469,9 +2611,7 @@ export class SquareMapComponent implements AfterViewInit {
         // Determine height based on terrain type
         let height = 0.1;
         if (terrainType === 'freshwater') {
-          height = 4.8;
-        } else if (terrainType === 'saltwater') {
-          height = 0.1;
+          height = 2.4;
         } else {
           switch (terrainType) {
             case 'mountains': height = 8.0; break;
@@ -2492,9 +2632,7 @@ export class SquareMapComponent implements AfterViewInit {
         
         // Store the height for this tile (for person positioning)
         // The top surface of the terrain (where person stands) is at the full height value
-        const actualHeight = (terrainType === 'saltwater') ? 0 : 
-                            (terrainType === 'freshwater') ? height * 0.5 : 
-                            height; // Full height for land tiles (top of the box)
+        const actualHeight = (terrainType === 'freshwater') ? height * 0.5 : height; // Full height for land tiles (top of the box)
         this.originalHeights.set(key, actualHeight);
         
         // Create geometry for this tile
@@ -2519,8 +2657,29 @@ export class SquareMapComponent implements AfterViewInit {
       }
     }
     
+    // Create a single large ocean plane instead of individual tiles
+    const oceanSize = this.populationBasedMapSize;
+    const oceanGeometry = new THREE.PlaneGeometry(oceanSize, oceanSize);
+    oceanGeometry.rotateX(-Math.PI / 2); // Make it horizontal
+    oceanGeometry.translate(0, 0, 0); // Center it at origin
+    
+    const oceanMaterial = this.createWaterMaterial(textures.saltwater, 0x20a0ff, envmap, 0.92);
+    const oceanMesh = new THREE.Mesh(oceanGeometry, oceanMaterial);
+    oceanMesh.castShadow = false;
+    oceanMesh.receiveShadow = true;
+    oceanMesh.renderOrder = -1; // Render water first
+    (oceanMesh as any).terrainType = 'saltwater';
+    this.scene.add(oceanMesh);
+    
+    console.log(`Created single ocean plane: ${oceanSize}x${oceanSize} at y=0`);
+    
     // Merge geometries for each biome and create meshes
     for (const [terrainType, geometries] of Object.entries(biomeGeometries)) {
+      // Skip saltwater since we already created the single ocean plane
+      if (terrainType === 'saltwater') {
+        continue;
+      }
+      
       if (geometries.length > 0) {
         const terrain = terrainType as VisualTerrainType;
         
@@ -2567,8 +2726,8 @@ export class SquareMapComponent implements AfterViewInit {
             // Use custom shader for water too, for consistency with land rendering
             material = this.createWaterMaterial(textures.saltwater, 0x20a0ff, envmap, 0.92);
           } else if (terrain === 'freshwater') {
-            // Use custom shader for water too, for consistency with land rendering
-            material = this.createWaterMaterial(textures.freshwater, 0x4080ff, envmap, 0.95);
+            // Use animated water material for freshwater (lakes/rivers)
+            material = this.createAnimatedWaterMaterial(textures.freshwater, 0x4080ff, envmap, 0.85);
           } else {
             const textureMap = textures[terrain as keyof typeof textures];
             // Use white for all terrains - let the texture and lighting define the color
@@ -2582,6 +2741,11 @@ export class SquareMapComponent implements AfterViewInit {
           const biomeMesh = new THREE.Mesh(mergedGeometry, material);
           biomeMesh.castShadow = true;
           biomeMesh.receiveShadow = true;
+          
+          // Store freshwater meshes for animation
+          if (terrain === 'freshwater') {
+            this.waterMeshes.push(biomeMesh);
+          }
           
           // Set render order: land should render after water (higher order = renders later)
           if (terrain === 'saltwater' || terrain === 'freshwater') {
