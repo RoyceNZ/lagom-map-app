@@ -7,6 +7,7 @@ import { RGBELoader } from 'three/examples/jsm/loaders/RGBELoader.js';
 import { OrbitControls } from 'three/examples/jsm/controls/OrbitControls.js';
 import * as BufferGeometryUtils from 'three/examples/jsm/utils/BufferGeometryUtils.js';
 import { RoundedBoxGeometry } from 'three/examples/jsm/geometries/RoundedBoxGeometry.js';
+import { GLTFLoader } from 'three/examples/jsm/loaders/GLTFLoader.js';
 
 // SDF (Signed Distance Field) Shader for seamless rounded biome tiles
 const sdfVertexShader = `
@@ -234,6 +235,101 @@ export class SquareMapComponent implements AfterViewInit {
   mouse = new THREE.Vector2();
   hoveredTileInfo: { biome: string; x: number; z: number } | null = null;
   highlightMesh!: THREE.Mesh;
+  
+  // Camera distance tracking
+  cameraDistance: number = 0;
+
+  // GLB tile models
+  tileModels: { [key: string]: THREE.Object3D } = {};
+  tileGeometries: { [key: string]: THREE.BufferGeometry } = {}; // Cache extracted geometries
+  modelsLoaded = false;
+
+  // Water animation
+  waterTime = 0;
+  waterMeshes: THREE.Mesh[] = []; // Store all freshwater meshes for animation
+
+  // Person object properties
+  personMesh!: THREE.Group;
+  showPerson = true;
+  personHeight = 1.75; // meters (default average height)
+  personGender: 'male' | 'female' = 'male';
+  personPosition = { x: 0, z: 0 };
+  personSpeed = 0.1; // meters per frame when key is held (slowed down)
+  keysPressed = new Set<string>();
+  
+  // Animation properties
+  walkAnimationTime = 0;
+  isWalking = false;
+  isJumping = false;
+  jumpVelocity = 0;
+  jumpSpeed = 0.3; // Initial upward velocity when jumping
+  gravity = 0.015; // Gravity pulling person back down
+  groundHeight = 0; // Current ground level
+  personBodyParts: {
+    leftLeg?: THREE.Mesh;
+    rightLeg?: THREE.Mesh;
+    leftArm?: THREE.Mesh;
+    rightArm?: THREE.Mesh;
+  } = {};
+
+  // Get the terrain height at a specific position
+  getTerrainHeightAt(x: number, z: number): number {
+    // Round to nearest integer tile coordinates
+    const tileX = Math.round(x);
+    const tileZ = Math.round(z);
+    const tileKey = `${tileX},${tileZ}`;
+    
+    // Check if we have a recorded height for this tile
+    const cachedHeight = this.originalHeights.get(tileKey);
+    if (cachedHeight !== undefined) {
+      return cachedHeight;
+    }
+    
+    // Check if we have map assignments for this position
+    if (this.lastMapAssignments) {
+      const biome = this.lastMapAssignments.get(tileKey);
+      if (biome) {
+        // Get the visual terrain type
+        const visualType = TERRAIN_VISUAL_MAPPING[biome];
+        
+        // Use the same height logic as in updateMap
+        let height = 0.1;
+        if (visualType === 'freshwater') {
+          height = 2.4;
+        } else if (visualType === 'saltwater') {
+          height = 0.1;
+        } else {
+          switch (visualType) {
+            case 'mountains': height = 8.0; break;
+            case 'tundra': height = 6.5; break;
+            case 'urban': height = 5.5; break;
+            case 'borealForest': height = 4.5; break;
+            case 'temperateForest': height = 3.5; break;
+            case 'tropicalRainforest': height = 3.0; break;
+            case 'temperateGrassland': height = 2.5; break;
+            case 'pastureland': height = 2.0; break;
+            case 'cropland': height = 1.8; break;
+            case 'savanna': height = 1.5; break;
+            case 'scrub': height = 1.0; break;
+            case 'deserts': height = 0.8; break;
+            default: height = 2.5; break;
+          }
+        }
+        
+        // Return the top surface height (where person stands)
+        if (visualType === 'saltwater') {
+          return 0;
+        } else if (visualType === 'freshwater') {
+          return height * 0.5; // Freshwater plane is at this height
+        } else {
+          return height; // Land tiles: top of box is at full height
+        }
+      }
+    }
+    
+    // Default to ground level if we don't have information
+    return 0;
+  }
 
   // Instanced meshes (one per visual terrain type) - interior tiles
   mountainsMesh!: THREE.InstancedMesh;
@@ -272,6 +368,17 @@ export class SquareMapComponent implements AfterViewInit {
   usePopulationSizing = true;
   selectedYear = new Date().getFullYear();
   terrainSeed = Math.random() * 10000;
+  
+  // Collapsible sections state
+  sectionsCollapsed = {
+    terrain: true,
+    population: true,
+    legend: true,
+    person: true
+  };
+  
+  // Filters panel visibility
+  filtersPanelVisible = false;
   
   // SDF configuration for rounded edges
   cornerRadius = 0.08; // 0.0 = sharp corners, 0.15 = very rounded
@@ -996,10 +1103,96 @@ export class SquareMapComponent implements AfterViewInit {
 
   ngAfterViewInit(): void {
     console.log('ngAfterViewInit called');
-    this.initScene();
-    console.log('Scene initialized');
-    this.updateMap();
-    console.log('Map update called');
+    this.loadTileModels().then(() => {
+      this.initScene();
+      console.log('Scene initialized');
+      this.updateMap();
+      console.log('Map update called');
+    });
+  }
+
+  onYearChange(event: Event): void {
+    const input = event.target as HTMLInputElement;
+    const year = parseInt(input.value, 10);
+    
+    // Only update if the year is valid and within the allowed range
+    if (!isNaN(year) && year >= 1800 && year <= 2050) {
+      this.selectedYear = year;
+      this.updateMap();
+    }
+  }
+
+  toggleSection(section: 'terrain' | 'population' | 'legend' | 'person'): void {
+    this.sectionsCollapsed[section] = !this.sectionsCollapsed[section];
+  }
+
+  toggleFiltersPanel(): void {
+    this.filtersPanelVisible = !this.filtersPanelVisible;
+  }
+
+  async loadTileModels(): Promise<void> {
+    console.log('Loading tile models from tiles.glb...');
+    const loader = new GLTFLoader();
+    
+    return new Promise((resolve, reject) => {
+      loader.load(
+        'assets/tiles.glb',
+        (gltf) => {
+          console.log('GLB loaded successfully:', gltf);
+          console.log('Scene structure:', gltf.scene);
+          
+          // Extract the three tile models by name and cache their geometries
+          gltf.scene.traverse((child) => {
+            console.log('Found child:', child.name, child.type);
+            
+            if (child.name === 'center' || child.name === 'edge' || child.name === 'corner') {
+              // Store the mesh directly if it's a mesh, otherwise find the first mesh child
+              if (child instanceof THREE.Mesh) {
+                this.tileModels[child.name] = child;
+                this.tileGeometries[child.name] = child.geometry;
+                console.log(`Found ${child.name} model (Mesh) with geometry`);
+              } else {
+                // If it's a group, find the first mesh child
+                child.traverse((meshChild) => {
+                  if (meshChild instanceof THREE.Mesh && !this.tileModels[child.name]) {
+                    this.tileModels[child.name] = meshChild;
+                    this.tileGeometries[child.name] = meshChild.geometry;
+                    console.log(`Found ${child.name} model (Mesh from Group) with geometry`);
+                  }
+                });
+              }
+            }
+          });
+          
+          // Verify all three models and their geometries were found
+          const requiredModels = ['center', 'edge', 'corner'];
+          const foundModels = requiredModels.filter(name => 
+            this.tileGeometries[name] && this.tileGeometries[name].attributes['position']
+          );
+          
+          this.modelsLoaded = foundModels.length === 3;
+          
+          if (!this.modelsLoaded) {
+            console.warn('Not all models found. Found:', foundModels);
+            console.log('Available objects in scene:');
+            gltf.scene.traverse((child) => {
+              console.log(`  - ${child.type}: ${child.name || '(unnamed)'}`);
+            });
+          } else {
+            console.log('✅ All tile models loaded successfully with geometries:', foundModels);
+          }
+          
+          resolve();
+        },
+        (progress) => {
+          console.log('Loading progress:', (progress.loaded / progress.total * 100).toFixed(2) + '%');
+        },
+        (error) => {
+          console.error('Error loading GLB file:', error);
+          reject(error);
+        }
+      );
+    });
   }
 
   initScene(): void {
@@ -1007,14 +1200,10 @@ export class SquareMapComponent implements AfterViewInit {
     this.scene = new THREE.Scene();
     this.scene.background = new THREE.Color("#ADD8E6"); // Set the background color of the scene to light blue
     
-    // Calculate available space for the renderer
-    const isMobile = window.innerWidth <= 768;
-    const filterPanelWidth = isMobile ? 0 : 320;
-    const bannerHeight = 95; /* Adjusted to match filter top position */
-    const mobileFiltersHeight = isMobile ? 200 : 0;
-    
-    const availableWidth = window.innerWidth - filterPanelWidth;
-    const availableHeight = window.innerHeight - bannerHeight - mobileFiltersHeight;
+    // Calculate available space for the renderer using the actual container
+    const container = this.rendererContainer.nativeElement;
+    const availableWidth = container.clientWidth || window.innerWidth;
+    const availableHeight = container.clientHeight || (window.innerHeight - 95);
     
     console.log('Available dimensions:', availableWidth, 'x', availableHeight);
     
@@ -1025,7 +1214,8 @@ export class SquareMapComponent implements AfterViewInit {
     this.camera.position.set(180, 200, 180); // Elevated angle to see the island's topography
     console.log('Camera positioned at:', this.camera.position);
 
-    this.renderer = new THREE.WebGLRenderer({ antialias: true, logarithmicDepthBuffer: true });
+    // Note: logarithmicDepthBuffer disabled to ensure proper depth testing with custom shaders
+    this.renderer = new THREE.WebGLRenderer({ antialias: true, logarithmicDepthBuffer: false });
     this.renderer.setSize(availableWidth, availableHeight);
     this.renderer.toneMapping = THREE.ACESFilmicToneMapping
     this.renderer.shadowMap.enabled = true;
@@ -1063,14 +1253,34 @@ export class SquareMapComponent implements AfterViewInit {
       color: 0xffff00,
       transparent: true,
       opacity: 0.4,
-      side: THREE.DoubleSide
+      side: THREE.DoubleSide,
+      depthTest: true,
+      depthWrite: false // Transparent, so don't write to depth buffer
     });
     this.highlightMesh = new THREE.Mesh(highlightGeometry, highlightMaterial);
     this.highlightMesh.visible = false;
+    this.highlightMesh.renderOrder = 999; // Render on top of everything else
     this.scene.add(this.highlightMesh);
+
+    // Don't create person yet - wait until map is generated
+    // this.createPerson();
 
     this.renderer.setAnimationLoop(() => {
       controls.update();
+      this.updatePersonMovement(); // Update person position based on keyboard input
+      
+      // Update camera distance
+      this.cameraDistance = this.camera.position.length();
+      
+      // Update water animation
+      this.waterTime += 0.016; // Approximately 60fps
+      this.waterMeshes.forEach(mesh => {
+        const material = mesh.material as THREE.ShaderMaterial;
+        if (material.uniforms && material.uniforms['time']) {
+          material.uniforms['time'].value = this.waterTime;
+        }
+      });
+      
       this.renderer.render(this.scene, this.camera);
     });
 
@@ -1079,20 +1289,296 @@ export class SquareMapComponent implements AfterViewInit {
 
     // Add mouse move handler for hover detection
     this.renderer.domElement.addEventListener('mousemove', (event) => this.onMouseMove(event));
+    
+    // Add keyboard event listeners for person movement
+    window.addEventListener('keydown', (event) => this.onKeyDown(event));
+    window.addEventListener('keyup', (event) => this.onKeyUp(event));
   }
 
   onWindowResize(): void {
-    const isMobile = window.innerWidth <= 768;
-    const filterPanelWidth = isMobile ? 0 : 320;
-    const bannerHeight = 95; /* Adjusted to match filter top position */
-    const mobileFiltersHeight = isMobile ? 200 : 0; // Approximate height of filters on mobile
-    
-    const availableWidth = window.innerWidth - filterPanelWidth;
-    const availableHeight = window.innerHeight - bannerHeight - mobileFiltersHeight;
+    // Get the actual container dimensions dynamically
+    const container = this.rendererContainer.nativeElement;
+    const availableWidth = container.clientWidth;
+    const availableHeight = container.clientHeight;
     
     this.camera.aspect = availableWidth / availableHeight;
     this.camera.updateProjectionMatrix();
     this.renderer.setSize(availableWidth, availableHeight);
+  }
+
+  // Create a 3D person model at proper scale
+  async createPerson(): Promise<void> {
+    console.log('createPerson called - showPerson:', this.showPerson);
+    
+    // Remove existing person if any
+    if (this.personMesh) {
+      this.scene.remove(this.personMesh);
+      this.personMesh.traverse((child) => {
+        if (child instanceof THREE.Mesh) {
+          if (child.geometry) child.geometry.dispose();
+          if (child.material) {
+            if (Array.isArray(child.material)) {
+              child.material.forEach(mat => mat.dispose());
+            } else {
+              child.material.dispose();
+            }
+          }
+        }
+      });
+    }
+
+    // Use procedural person model
+    console.log('Creating procedural person model');
+    this.createProceduralPerson();
+  }
+  
+  // Create a procedural person model
+  createProceduralPerson(): void {
+    this.personMesh = new THREE.Group();
+    
+    const heightScale = this.personHeight;
+    const headHeight = heightScale * 0.12;
+    const headRadius = heightScale * 0.08;
+    const torsoHeight = heightScale * 0.35;
+    const torsoWidth = heightScale * 0.15;
+    const torsoDepth = heightScale * 0.1;
+    const legHeight = heightScale * 0.45;
+    const legRadius = heightScale * 0.04;
+    const armHeight = heightScale * 0.32;
+    const armRadius = heightScale * 0.03;
+
+    // Color scheme based on gender
+    const skinColor = this.personGender === 'male' ? 0xFFDBAC : 0xFFE4C4;
+    const clothingColor = this.personGender === 'male' ? 0x4A90E2 : 0xE94B3C;
+    const pantsColor = this.personGender === 'male' ? 0x2C3E50 : 0x8E44AD;
+
+    // Create head
+    const headGeometry = new THREE.SphereGeometry(headRadius, 16, 16);
+    const headMaterial = new THREE.MeshStandardMaterial({ color: skinColor });
+    const head = new THREE.Mesh(headGeometry, headMaterial);
+    head.position.y = heightScale - headHeight / 2;
+    head.castShadow = true;
+    head.receiveShadow = true;
+    this.personMesh.add(head);
+
+    // Create torso
+    const torsoGeometry = new THREE.BoxGeometry(torsoWidth, torsoHeight, torsoDepth);
+    const torsoMaterial = new THREE.MeshStandardMaterial({ color: clothingColor });
+    const torso = new THREE.Mesh(torsoGeometry, torsoMaterial);
+    torso.position.y = heightScale - headHeight * 2 - torsoHeight / 2;
+    torso.castShadow = true;
+    torso.receiveShadow = true;
+    this.personMesh.add(torso);
+
+    // Create legs
+    const legGeometry = new THREE.CylinderGeometry(legRadius, legRadius, legHeight, 8);
+    const legMaterial = new THREE.MeshStandardMaterial({ color: pantsColor });
+    
+    const leftLeg = new THREE.Mesh(legGeometry, legMaterial);
+    leftLeg.position.set(-torsoWidth * 0.25, legHeight / 2, 0);
+    leftLeg.castShadow = true;
+    leftLeg.receiveShadow = true;
+    this.personMesh.add(leftLeg);
+    
+    const rightLeg = new THREE.Mesh(legGeometry, legMaterial);
+    rightLeg.position.set(torsoWidth * 0.25, legHeight / 2, 0);
+    rightLeg.castShadow = true;
+    rightLeg.receiveShadow = true;
+    this.personMesh.add(rightLeg);
+
+    // Create arms
+    const armGeometry = new THREE.CylinderGeometry(armRadius, armRadius, armHeight, 8);
+    const armMaterial = new THREE.MeshStandardMaterial({ color: skinColor });
+    
+    const leftArm = new THREE.Mesh(armGeometry, armMaterial);
+    leftArm.position.set(-torsoWidth * 0.65, heightScale - headHeight * 2 - armHeight / 2, 0);
+    leftArm.castShadow = true;
+    leftArm.receiveShadow = true;
+    this.personMesh.add(leftArm);
+    
+    const rightArm = new THREE.Mesh(armGeometry, armMaterial);
+    rightArm.position.set(torsoWidth * 0.65, heightScale - headHeight * 2 - armHeight / 2, 0);
+    rightArm.castShadow = true;
+    rightArm.receiveShadow = true;
+    this.personMesh.add(rightArm);
+
+    // Store references to body parts for animation
+    this.personBodyParts = {
+      leftLeg: leftLeg,
+      rightLeg: rightLeg,
+      leftArm: leftArm,
+      rightArm: rightArm
+    };
+
+    // Get the terrain height at person's position
+    const terrainHeight = this.getTerrainHeightAt(this.personPosition.x, this.personPosition.z);
+    
+    console.log(`Person positioned at (${this.personPosition.x}, ${terrainHeight}, ${this.personPosition.z})`);
+    
+    // Position person on the map
+    this.personMesh.position.set(this.personPosition.x, terrainHeight, this.personPosition.z);
+    this.personMesh.visible = this.showPerson;
+    this.personMesh.updateMatrixWorld(true);
+
+    // Add to scene
+    this.scene.add(this.personMesh);
+    
+    console.log('Procedural person model created successfully');
+  }
+
+  // Update person when height or gender changes
+  updatePerson(): void {
+    this.createPerson().catch(error => {
+      console.error('Error updating person:', error);
+    });
+  }
+
+  // Toggle person visibility
+  togglePerson(): void {
+    this.showPerson = !this.showPerson;
+    if (this.personMesh) {
+      this.personMesh.visible = this.showPerson;
+    }
+  }
+
+  // Keyboard event handlers for person movement
+  onKeyDown(event: KeyboardEvent): void {
+    const key = event.key.toLowerCase();
+    
+    // Handle spacebar for jumping (only if not already jumping)
+    if (key === ' ' && !this.isJumping) {
+      this.isJumping = true;
+      this.jumpVelocity = this.jumpSpeed;
+      event.preventDefault(); // Prevent page scroll
+      return;
+    }
+    
+    // Add key to pressed set
+    this.keysPressed.add(key);
+  }
+
+  onKeyUp(event: KeyboardEvent): void {
+    // Remove key from pressed set
+    this.keysPressed.delete(event.key.toLowerCase());
+  }
+
+  // Update person position based on keyboard input (called every frame)
+  updatePersonMovement(): void {
+    if (!this.personMesh || !this.showPerson) return;
+
+    let moved = false;
+    const originalX = this.personPosition.x;
+    const originalZ = this.personPosition.z;
+
+    // WASD or Arrow keys for movement
+    if (this.keysPressed.has('w') || this.keysPressed.has('arrowup')) {
+      this.personPosition.z -= this.personSpeed; // Move north (negative Z)
+      moved = true;
+    }
+    if (this.keysPressed.has('s') || this.keysPressed.has('arrowdown')) {
+      this.personPosition.z += this.personSpeed; // Move south (positive Z)
+      moved = true;
+    }
+    if (this.keysPressed.has('a') || this.keysPressed.has('arrowleft')) {
+      this.personPosition.x -= this.personSpeed; // Move west (negative X)
+      moved = true;
+    }
+    if (this.keysPressed.has('d') || this.keysPressed.has('arrowright')) {
+      this.personPosition.x += this.personSpeed; // Move east (positive X)
+      moved = true;
+    }
+
+    // Keep person within map bounds
+    const halfSize = this.mapHalfSize || 125;
+    this.personPosition.x = Math.max(-halfSize, Math.min(halfSize - 1, this.personPosition.x));
+    this.personPosition.z = Math.max(-halfSize, Math.min(halfSize - 1, this.personPosition.z));
+
+    // Get terrain height at current position
+    const terrainHeight = this.getTerrainHeightAt(this.personPosition.x, this.personPosition.z);
+    this.groundHeight = terrainHeight;
+
+    // Handle jumping physics
+    let currentHeight = terrainHeight;
+    if (this.isJumping) {
+      // Apply jump velocity
+      currentHeight = this.personMesh.position.y + this.jumpVelocity;
+      
+      // Apply gravity
+      this.jumpVelocity -= this.gravity;
+      
+      // Check if landed back on ground
+      if (currentHeight <= terrainHeight) {
+        currentHeight = terrainHeight;
+        this.isJumping = false;
+        this.jumpVelocity = 0;
+      }
+    }
+    
+    // Update person mesh position (with jump height)
+    this.personMesh.position.set(this.personPosition.x, currentHeight, this.personPosition.z);
+    
+    // Rotate person to face direction of movement
+    if (moved && (originalX !== this.personPosition.x || originalZ !== this.personPosition.z)) {
+      const deltaX = this.personPosition.x - originalX;
+      const deltaZ = this.personPosition.z - originalZ;
+      const angle = Math.atan2(deltaX, -deltaZ); // Negative Z because -Z is forward
+      this.personMesh.rotation.y = angle;
+    }
+
+    // Set walking state (can walk while in air)
+    if (moved) {
+      this.isWalking = true;
+    } else {
+      // Not moving - stop walking animation
+      this.isWalking = false;
+      this.resetWalkingPose();
+    }
+
+    // Update walking animation if person is moving
+    if (this.isWalking) {
+      this.animateWalking();
+    }
+  }
+
+  // Animate walking motion (swinging arms and legs)
+  animateWalking(): void {
+    if (!this.personBodyParts.leftLeg || !this.personBodyParts.rightLeg || 
+        !this.personBodyParts.leftArm || !this.personBodyParts.rightArm) {
+      return;
+    }
+
+    // Increment animation time based on speed (increased from 0.15 to 0.5 for faster stepping)
+    this.walkAnimationTime += this.personSpeed * 3;
+
+    // Calculate swing angles using sine wave
+    const swingAngle = Math.sin(this.walkAnimationTime) * 0.5; // Max 0.5 radians (~28 degrees)
+
+    // Legs swing opposite to each other
+    this.personBodyParts.leftLeg.rotation.x = swingAngle;
+    this.personBodyParts.rightLeg.rotation.x = -swingAngle;
+
+    // Arms swing opposite to legs (left arm forward when right leg forward)
+    this.personBodyParts.leftArm.rotation.x = -swingAngle * 0.7; // Arms swing less than legs
+    this.personBodyParts.rightArm.rotation.x = swingAngle * 0.7;
+  }
+
+  // Reset limbs to neutral position when not walking
+  resetWalkingPose(): void {
+    if (!this.personBodyParts.leftLeg || !this.personBodyParts.rightLeg || 
+        !this.personBodyParts.leftArm || !this.personBodyParts.rightArm) {
+      return;
+    }
+
+    // Smoothly return to neutral pose
+    this.personBodyParts.leftLeg.rotation.x *= 0.9;
+    this.personBodyParts.rightLeg.rotation.x *= 0.9;
+    this.personBodyParts.leftArm.rotation.x *= 0.9;
+    this.personBodyParts.rightArm.rotation.x *= 0.9;
+
+    // Reset animation time when stopped
+    if (Math.abs(this.personBodyParts.leftLeg.rotation.x) < 0.01) {
+      this.walkAnimationTime = 0;
+    }
   }
 
   // Create a shader material with vertex-based beveling for selective edge rounding
@@ -1243,7 +1729,9 @@ export class SquareMapComponent implements AfterViewInit {
         }
       `,
       lights: false,
-      side: THREE.FrontSide
+      side: THREE.FrontSide,
+      depthTest: true,
+      depthWrite: true
     });
   }
 
@@ -1327,7 +1815,126 @@ export class SquareMapComponent implements AfterViewInit {
       transparent: true,
       lights: false,
       side: THREE.FrontSide,
-      depthWrite: true
+      depthTest: true,
+      depthWrite: false  // Water is transparent, so don't write to depth buffer
+    });
+  }
+
+  createAnimatedWaterMaterial(
+    textureMap: THREE.Texture, 
+    materialColor: number, 
+    envMap: THREE.Texture,
+    opacity: number
+  ): THREE.ShaderMaterial {
+    return new THREE.ShaderMaterial({
+      uniforms: {
+        map: { value: textureMap },
+        envMap: { value: envMap },
+        envMapIntensity: { value: 0.5 },
+        color: { value: new THREE.Color(materialColor) },
+        opacity: { value: opacity },
+        time: { value: 0 } // For animation
+      },
+      vertexShader: `
+        uniform float time;
+        varying vec2 vUv;
+        varying vec3 vNormal;
+        varying vec3 vWorldPosition;
+        varying vec3 vViewPosition;
+        
+        void main() {
+          vUv = uv;
+          
+          // Create animated waves
+          vec3 pos = position;
+          float wave1 = sin(pos.x * 2.0 + time * 2.0) * 0.05;
+          float wave2 = sin(pos.z * 3.0 + time * 1.5) * 0.03;
+          float wave3 = sin((pos.x + pos.z) * 1.5 + time * 2.5) * 0.04;
+          pos.y += wave1 + wave2 + wave3;
+          
+          // Calculate animated normal for lighting
+          float dx = cos(pos.x * 2.0 + time * 2.0) * 0.1;
+          float dz = cos(pos.z * 3.0 + time * 1.5) * 0.09;
+          vec3 animatedNormal = normalize(vec3(-dx, 1.0, -dz));
+          vNormal = normalize(normalMatrix * animatedNormal);
+          
+          vec4 worldPosition = modelMatrix * vec4(pos, 1.0);
+          vWorldPosition = worldPosition.xyz;
+          
+          vec4 mvPosition = viewMatrix * worldPosition;
+          vViewPosition = mvPosition.xyz;
+          gl_Position = projectionMatrix * mvPosition;
+        }
+      `,
+      fragmentShader: `
+        uniform sampler2D map;
+        uniform samplerCube envMap;
+        uniform vec3 color;
+        uniform float envMapIntensity;
+        uniform float opacity;
+        uniform float time;
+        
+        varying vec2 vUv;
+        varying vec3 vNormal;
+        varying vec3 vWorldPosition;
+        varying vec3 vViewPosition;
+        
+        void main() {
+          // Animate UV coordinates for flowing water effect
+          vec2 uv1 = vUv + vec2(time * 0.02, time * 0.01);
+          vec2 uv2 = vUv + vec2(-time * 0.015, time * 0.025);
+          
+          vec4 texColor1 = texture2D(map, uv1);
+          vec4 texColor2 = texture2D(map, uv2);
+          vec4 texColor = mix(texColor1, texColor2, 0.5);
+          
+          // Enhanced lighting with animated normal
+          vec3 normal = normalize(vNormal);
+          
+          // Main directional light (sun-like)
+          vec3 mainLightDir = normalize(vec3(0.5, 1.5, 0.8));
+          float mainDiffuse = max(dot(normal, mainLightDir), 0.0);
+          
+          // Fill light
+          vec3 fillLightDir = normalize(vec3(-0.3, 0.5, -0.4));
+          float fillDiffuse = max(dot(normal, fillLightDir), 0.0) * 0.3;
+          
+          // Rim light
+          vec3 rimLightDir = normalize(vec3(0.0, 1.0, -0.5));
+          float rimDiffuse = max(dot(normal, rimLightDir), 0.0) * 0.2;
+          
+          // Combine lighting with slight pulsing effect
+          float totalDiffuse = mainDiffuse + fillDiffuse + rimDiffuse;
+          float ambient = 0.55 + sin(time * 0.5) * 0.05; // Subtle pulsing ambient
+          float lighting = ambient + totalDiffuse * 0.7;
+          lighting = clamp(lighting, 0.0, 1.3);
+          
+          // Enhanced water reflections
+          vec3 viewDir = normalize(cameraPosition - vWorldPosition);
+          vec3 reflectDir = reflect(-viewDir, normal);
+          vec4 envColor = textureCube(envMap, reflectDir);
+          
+          // Fresnel effect for more realistic water
+          float fresnelTerm = pow(1.0 - max(dot(viewDir, normal), 0.0), 3.0);
+          float reflectionStrength = mix(envMapIntensity * 0.3, envMapIntensity * 0.9, fresnelTerm);
+          
+          // Combine texture, color, lighting, and reflections
+          vec3 finalColor = texColor.rgb * color * lighting;
+          finalColor = mix(finalColor, envColor.rgb, reflectionStrength);
+          
+          // Add slight shimmer effect
+          float shimmer = sin(vWorldPosition.x * 10.0 + time * 3.0) * 
+                         sin(vWorldPosition.z * 10.0 + time * 2.5) * 0.1;
+          finalColor += vec3(shimmer * 0.2);
+          
+          gl_FragColor = vec4(finalColor, opacity);
+        }
+      `,
+      transparent: true,
+      lights: false,
+      side: THREE.DoubleSide,
+      depthTest: true,
+      depthWrite: false
     });
   }
 
@@ -1403,6 +2010,9 @@ export class SquareMapComponent implements AfterViewInit {
     this.isUpdating = true;
     console.log('Starting map update...');
     
+    // Clear water meshes array for new map
+    this.waterMeshes = [];
+    
     // Clear and regenerate the scene
     this.scene.clear();
 
@@ -1415,7 +2025,6 @@ export class SquareMapComponent implements AfterViewInit {
   
     // Load individual textures for each terrain type
     let textures = {
-      mountains: new THREE.TextureLoader().load('assets/mountains.png'),
       tundra: new THREE.TextureLoader().load('assets/tundra.png'),
       urban: new THREE.TextureLoader().load('assets/urban.png'),
       borealForest: new THREE.TextureLoader().load('assets/borealForest.png'),
@@ -1428,7 +2037,8 @@ export class SquareMapComponent implements AfterViewInit {
       savanna: new THREE.TextureLoader().load('assets/savanna.png'),
       deserts: new THREE.TextureLoader().load('assets/deserts.png'),
       saltwater: new THREE.TextureLoader().load('assets/saltwater.png'),
-      freshwater: new THREE.TextureLoader().load('assets/freshwater.png')
+      freshwater: new THREE.TextureLoader().load('assets/freshwater.png'),
+      mountains: new THREE.TextureLoader().load('assets/mountains.png')
     }
     // Reduce texture edge bleeding for water textures and allow repeating
     try {
@@ -1549,7 +2159,7 @@ export class SquareMapComponent implements AfterViewInit {
         flatShading: false,
         roughness: 1, 
         metalness: 0, 
-        color: 0x8b7355
+        map: textures.mountains
       }),
       squareCount
     );
@@ -1722,7 +2332,7 @@ export class SquareMapComponent implements AfterViewInit {
       perimeterGeometry, 
       new THREE.MeshPhysicalMaterial({ 
         envMap: envmap, envMapIntensity: 0.135, flatShading: false,
-        roughness: 1, metalness: 0, color: 0x8b7355
+        roughness: 1, metalness: 0, map: textures.mountains
       }),
       squareCount
     );
@@ -2003,6 +2613,13 @@ export class SquareMapComponent implements AfterViewInit {
         terrainCounts[terrainType] = (terrainCounts[terrainType] || 0) + 1;
         logicalTerrainCounts[logical] = (logicalTerrainCounts[logical] || 0) + 1;
         
+        // Skip creating individual geometries for saltwater - we'll create one large plane later
+        if (terrainType === 'saltwater') {
+          // Store height for person positioning
+          this.originalHeights.set(key, 0);
+          continue;
+        }
+        
         // Position at tile center
         const posX = x + 0.5;
         const posZ = z + 0.5;
@@ -2010,9 +2627,7 @@ export class SquareMapComponent implements AfterViewInit {
         // Determine height based on terrain type
         let height = 0.1;
         if (terrainType === 'freshwater') {
-          height = 4.8;
-        } else if (terrainType === 'saltwater') {
-          height = 0.1;
+          height = 2.4;
         } else {
           switch (terrainType) {
             case 'mountains': height = 8.0; break;
@@ -2031,27 +2646,24 @@ export class SquareMapComponent implements AfterViewInit {
           }
         }
         
+        // Store the height for this tile (for person positioning)
+        // The top surface of the terrain (where person stands) is at the full height value
+        const actualHeight = (terrainType === 'freshwater') ? height * 0.5 : height; // Full height for land tiles (top of the box)
+        this.originalHeights.set(key, actualHeight);
+        
         // Create geometry for this tile
         let tileGeometry: THREE.BufferGeometry;
         
-        if (terrainType === 'saltwater' || terrainType === 'freshwater') {
-          // Water uses flat plane
-          // Saltwater at ground level (y=0), Freshwater uses its height variable
-          const waterHeight = terrainType === 'saltwater' ? 0 : (height * 0.5);
-          tileGeometry = new THREE.PlaneGeometry(1.0, 1.0);
-          tileGeometry.rotateX(-Math.PI / 2);
-          tileGeometry.translate(posX, waterHeight, posZ);
-        } else {
-          // Land tiles - check if perimeter and get edge rounding
+     
+          // Determine edge rounding based on neighbors
           const edgeRounding = getEdgeRounding(x, z, logical, mapAssignments);
           
-          // Always use createSelectivelyRoundedBox which adds the edgeRounding attribute
-          // For non-perimeter tiles, all flags will be 0.0 (no rounding)
+          // Create the tile geometry using procedural approach
           tileGeometry = createSelectivelyRoundedBox(1.0, height, 1.0, edgeRounding, this.cornerRadius * 5);
-          
-          // Position the land geometry
-          tileGeometry.translate(posX, height * 0.5, posZ);
-        }
+        
+        
+        // Position the geometry at the tile center
+        tileGeometry.translate(posX, height * 0.5, posZ);
         
         // Ensure geometry has proper attributes for merging
         if (!tileGeometry.attributes['normal']) {
@@ -2063,8 +2675,29 @@ export class SquareMapComponent implements AfterViewInit {
       }
     }
     
+    // Create a single large ocean plane instead of individual tiles
+    const oceanSize = this.populationBasedMapSize;
+    const oceanGeometry = new THREE.PlaneGeometry(oceanSize, oceanSize);
+    oceanGeometry.rotateX(-Math.PI / 2); // Make it horizontal
+    oceanGeometry.translate(0, 0, 0); // Center it at origin
+    
+    const oceanMaterial = this.createWaterMaterial(textures.saltwater, 0x20a0ff, envmap, 0.92);
+    const oceanMesh = new THREE.Mesh(oceanGeometry, oceanMaterial);
+    oceanMesh.castShadow = false;
+    oceanMesh.receiveShadow = true;
+    oceanMesh.renderOrder = -1; // Render water first
+    (oceanMesh as any).terrainType = 'saltwater';
+    this.scene.add(oceanMesh);
+    
+    console.log(`Created single ocean plane: ${oceanSize}x${oceanSize} at y=0`);
+    
     // Merge geometries for each biome and create meshes
     for (const [terrainType, geometries] of Object.entries(biomeGeometries)) {
+      // Skip saltwater since we already created the single ocean plane
+      if (terrainType === 'saltwater') {
+        continue;
+      }
+      
       if (geometries.length > 0) {
         const terrain = terrainType as VisualTerrainType;
         
@@ -2081,12 +2714,13 @@ export class SquareMapComponent implements AfterViewInit {
           // This is crucial because BoxGeometry is indexed but PlaneGeometry might not be
           const nonIndexedGeometries = validGeometries.map(geom => {
             // Clone to avoid modifying original
-            const cloned = geom.clone();
+            let cloned = geom.clone();
             
             // Convert indexed to non-indexed if needed
             if (cloned.index) {
-              return cloned.toNonIndexed();
+              cloned = cloned.toNonIndexed();
             }
+          
             
             // Ensure normals are computed
             if (!cloned.attributes['normal']) {
@@ -2111,9 +2745,18 @@ export class SquareMapComponent implements AfterViewInit {
             // Use custom shader for water too, for consistency with land rendering
             material = this.createWaterMaterial(textures.saltwater, 0x20a0ff, envmap, 0.92);
           } else if (terrain === 'freshwater') {
-            // Use custom shader for water too, for consistency with land rendering
-            material = this.createWaterMaterial(textures.freshwater, 0x4080ff, envmap, 0.95);
-          } else {
+            // Use animated water material for freshwater (lakes/rivers)
+            material = this.createAnimatedWaterMaterial(textures.freshwater, 0x4080ff, envmap, 0.85);
+          // } else if (terrain === 'mountains') {
+          //   // Use simple solid color for mountains (no texture)
+          //   material = new THREE.MeshStandardMaterial({ 
+          //     color: 0x8b7355,  // Brown mountain color
+          //     roughness: 0.9,
+          //     metalness: 0,
+          //     flatShading: true,  // Hide beveling subdivisions
+          //     wireframe: false    // Ensure wireframe is disabled
+          //   });
+          } else{
             const textureMap = textures[terrain as keyof typeof textures];
             // Use white for all terrains - let the texture and lighting define the color
             const materialColor = 0xffffff;
@@ -2126,6 +2769,11 @@ export class SquareMapComponent implements AfterViewInit {
           const biomeMesh = new THREE.Mesh(mergedGeometry, material);
           biomeMesh.castShadow = true;
           biomeMesh.receiveShadow = true;
+          
+          // Store freshwater meshes for animation
+          if (terrain === 'freshwater') {
+            this.waterMeshes.push(biomeMesh);
+          }
           
           // Set render order: land should render after water (higher order = renders later)
           if (terrain === 'saltwater' || terrain === 'freshwater') {
@@ -2342,6 +2990,15 @@ export class SquareMapComponent implements AfterViewInit {
     
     console.log('Map update completed successfully');
     this.isUpdating = false;
+    
+    // Create or update person position after map is generated
+    if (!this.personMesh) {
+      this.createPerson().catch(error => {
+        console.error('Error creating person:', error);
+      });
+    } else {
+      this.updatePerson();
+    }
   }
 
   reassignTileToMesh(tileX: number, tileZ: number, targetTerrainType: VisualTerrainType): void {
