@@ -235,6 +235,9 @@ export class SquareMapComponent implements AfterViewInit {
   mouse = new THREE.Vector2();
   hoveredTileInfo: { biome: string; x: number; z: number } | null = null;
   highlightMesh!: THREE.Mesh;
+  
+  // Camera distance tracking
+  cameraDistance: number = 0;
 
   // GLB tile models
   tileModels: { [key: string]: THREE.Object3D } = {};
@@ -365,6 +368,17 @@ export class SquareMapComponent implements AfterViewInit {
   usePopulationSizing = true;
   selectedYear = new Date().getFullYear();
   terrainSeed = Math.random() * 10000;
+  
+  // Collapsible sections state
+  sectionsCollapsed = {
+    terrain: true,
+    population: true,
+    legend: true,
+    person: true
+  };
+  
+  // Filters panel visibility
+  filtersPanelVisible = false;
   
   // SDF configuration for rounded edges
   cornerRadius = 0.08; // 0.0 = sharp corners, 0.15 = very rounded
@@ -1097,6 +1111,25 @@ export class SquareMapComponent implements AfterViewInit {
     });
   }
 
+  onYearChange(event: Event): void {
+    const input = event.target as HTMLInputElement;
+    const year = parseInt(input.value, 10);
+    
+    // Only update if the year is valid and within the allowed range
+    if (!isNaN(year) && year >= 1800 && year <= 2050) {
+      this.selectedYear = year;
+      this.updateMap();
+    }
+  }
+
+  toggleSection(section: 'terrain' | 'population' | 'legend' | 'person'): void {
+    this.sectionsCollapsed[section] = !this.sectionsCollapsed[section];
+  }
+
+  toggleFiltersPanel(): void {
+    this.filtersPanelVisible = !this.filtersPanelVisible;
+  }
+
   async loadTileModels(): Promise<void> {
     console.log('Loading tile models from tiles.glb...');
     const loader = new GLTFLoader();
@@ -1167,14 +1200,10 @@ export class SquareMapComponent implements AfterViewInit {
     this.scene = new THREE.Scene();
     this.scene.background = new THREE.Color("#ADD8E6"); // Set the background color of the scene to light blue
     
-    // Calculate available space for the renderer
-    const isMobile = window.innerWidth <= 768;
-    const filterPanelWidth = isMobile ? 0 : 320;
-    const bannerHeight = 95; /* Adjusted to match filter top position */
-    const mobileFiltersHeight = isMobile ? 200 : 0;
-    
-    const availableWidth = window.innerWidth - filterPanelWidth;
-    const availableHeight = window.innerHeight - bannerHeight - mobileFiltersHeight;
+    // Calculate available space for the renderer using the actual container
+    const container = this.rendererContainer.nativeElement;
+    const availableWidth = container.clientWidth || window.innerWidth;
+    const availableHeight = container.clientHeight || (window.innerHeight - 95);
     
     console.log('Available dimensions:', availableWidth, 'x', availableHeight);
     
@@ -1240,6 +1269,9 @@ export class SquareMapComponent implements AfterViewInit {
       controls.update();
       this.updatePersonMovement(); // Update person position based on keyboard input
       
+      // Update camera distance
+      this.cameraDistance = this.camera.position.length();
+      
       // Update water animation
       this.waterTime += 0.016; // Approximately 60fps
       this.waterMeshes.forEach(mesh => {
@@ -1264,13 +1296,10 @@ export class SquareMapComponent implements AfterViewInit {
   }
 
   onWindowResize(): void {
-    const isMobile = window.innerWidth <= 768;
-    const filterPanelWidth = isMobile ? 0 : 320;
-    const bannerHeight = 95; /* Adjusted to match filter top position */
-    const mobileFiltersHeight = isMobile ? 200 : 0; // Approximate height of filters on mobile
-    
-    const availableWidth = window.innerWidth - filterPanelWidth;
-    const availableHeight = window.innerHeight - bannerHeight - mobileFiltersHeight;
+    // Get the actual container dimensions dynamically
+    const container = this.rendererContainer.nativeElement;
+    const availableWidth = container.clientWidth;
+    const availableHeight = container.clientHeight;
     
     this.camera.aspect = availableWidth / availableHeight;
     this.camera.updateProjectionMatrix();
@@ -1278,11 +1307,12 @@ export class SquareMapComponent implements AfterViewInit {
   }
 
   // Create a 3D person model at proper scale
-  createPerson(): void {
+  async createPerson(): Promise<void> {
+    console.log('createPerson called - showPerson:', this.showPerson);
+    
     // Remove existing person if any
     if (this.personMesh) {
       this.scene.remove(this.personMesh);
-      // Dispose of geometries and materials to free memory
       this.personMesh.traverse((child) => {
         if (child instanceof THREE.Mesh) {
           if (child.geometry) child.geometry.dispose();
@@ -1297,16 +1327,16 @@ export class SquareMapComponent implements AfterViewInit {
       });
     }
 
-    // Create a group to hold all person parts
+    // Use procedural person model
+    console.log('Creating procedural person model');
+    this.createProceduralPerson();
+  }
+  
+  // Create a procedural person model
+  createProceduralPerson(): void {
     this.personMesh = new THREE.Group();
     
-    // Ensure the person is in world space (not camera-relative)
-    this.personMesh.matrixAutoUpdate = true;
-
-    // Scale factor based on height (1 unit = 1 meter)
     const heightScale = this.personHeight;
-    
-    // Define body proportions (typical human proportions)
     const headHeight = heightScale * 0.12;
     const headRadius = heightScale * 0.08;
     const torsoHeight = heightScale * 0.35;
@@ -1322,39 +1352,27 @@ export class SquareMapComponent implements AfterViewInit {
     const clothingColor = this.personGender === 'male' ? 0x4A90E2 : 0xE94B3C;
     const pantsColor = this.personGender === 'male' ? 0x2C3E50 : 0x8E44AD;
 
-    // Create head (sphere)
+    // Create head
     const headGeometry = new THREE.SphereGeometry(headRadius, 16, 16);
-    const headMaterial = new THREE.MeshStandardMaterial({ 
-      color: skinColor,
-      depthTest: true,
-      depthWrite: true
-    });
+    const headMaterial = new THREE.MeshStandardMaterial({ color: skinColor });
     const head = new THREE.Mesh(headGeometry, headMaterial);
     head.position.y = heightScale - headHeight / 2;
     head.castShadow = true;
     head.receiveShadow = true;
     this.personMesh.add(head);
 
-    // Create torso (box)
+    // Create torso
     const torsoGeometry = new THREE.BoxGeometry(torsoWidth, torsoHeight, torsoDepth);
-    const torsoMaterial = new THREE.MeshStandardMaterial({ 
-      color: clothingColor,
-      depthTest: true,
-      depthWrite: true
-    });
+    const torsoMaterial = new THREE.MeshStandardMaterial({ color: clothingColor });
     const torso = new THREE.Mesh(torsoGeometry, torsoMaterial);
     torso.position.y = heightScale - headHeight * 2 - torsoHeight / 2;
     torso.castShadow = true;
     torso.receiveShadow = true;
     this.personMesh.add(torso);
 
-    // Create legs (cylinders)
+    // Create legs
     const legGeometry = new THREE.CylinderGeometry(legRadius, legRadius, legHeight, 8);
-    const legMaterial = new THREE.MeshStandardMaterial({ 
-      color: pantsColor,
-      depthTest: true,
-      depthWrite: true
-    });
+    const legMaterial = new THREE.MeshStandardMaterial({ color: pantsColor });
     
     const leftLeg = new THREE.Mesh(legGeometry, legMaterial);
     leftLeg.position.set(-torsoWidth * 0.25, legHeight / 2, 0);
@@ -1368,13 +1386,9 @@ export class SquareMapComponent implements AfterViewInit {
     rightLeg.receiveShadow = true;
     this.personMesh.add(rightLeg);
 
-    // Create arms (cylinders)
+    // Create arms
     const armGeometry = new THREE.CylinderGeometry(armRadius, armRadius, armHeight, 8);
-    const armMaterial = new THREE.MeshStandardMaterial({ 
-      color: skinColor,
-      depthTest: true,
-      depthWrite: true
-    });
+    const armMaterial = new THREE.MeshStandardMaterial({ color: skinColor });
     
     const leftArm = new THREE.Mesh(armGeometry, armMaterial);
     leftArm.position.set(-torsoWidth * 0.65, heightScale - headHeight * 2 - armHeight / 2, 0);
@@ -1401,20 +1415,22 @@ export class SquareMapComponent implements AfterViewInit {
     
     console.log(`Person positioned at (${this.personPosition.x}, ${terrainHeight}, ${this.personPosition.z})`);
     
-    // Position person on the map - place on top of terrain
+    // Position person on the map
     this.personMesh.position.set(this.personPosition.x, terrainHeight, this.personPosition.z);
     this.personMesh.visible = this.showPerson;
-    
-    // Update the world matrix to ensure proper positioning
     this.personMesh.updateMatrixWorld(true);
 
     // Add to scene
     this.scene.add(this.personMesh);
+    
+    console.log('Procedural person model created successfully');
   }
 
   // Update person when height or gender changes
   updatePerson(): void {
-    this.createPerson();
+    this.createPerson().catch(error => {
+      console.error('Error updating person:', error);
+    });
   }
 
   // Toggle person visibility
@@ -2009,7 +2025,6 @@ export class SquareMapComponent implements AfterViewInit {
   
     // Load individual textures for each terrain type
     let textures = {
-      mountains: new THREE.TextureLoader().load('assets/mountains.png'),
       tundra: new THREE.TextureLoader().load('assets/tundra.png'),
       urban: new THREE.TextureLoader().load('assets/urban.png'),
       borealForest: new THREE.TextureLoader().load('assets/borealForest.png'),
@@ -2022,7 +2037,8 @@ export class SquareMapComponent implements AfterViewInit {
       savanna: new THREE.TextureLoader().load('assets/savanna.png'),
       deserts: new THREE.TextureLoader().load('assets/deserts.png'),
       saltwater: new THREE.TextureLoader().load('assets/saltwater.png'),
-      freshwater: new THREE.TextureLoader().load('assets/freshwater.png')
+      freshwater: new THREE.TextureLoader().load('assets/freshwater.png'),
+      mountains: new THREE.TextureLoader().load('assets/mountains.png')
     }
     // Reduce texture edge bleeding for water textures and allow repeating
     try {
@@ -2143,7 +2159,7 @@ export class SquareMapComponent implements AfterViewInit {
         flatShading: false,
         roughness: 1, 
         metalness: 0, 
-        color: 0x8b7355
+        map: textures.mountains
       }),
       squareCount
     );
@@ -2316,7 +2332,7 @@ export class SquareMapComponent implements AfterViewInit {
       perimeterGeometry, 
       new THREE.MeshPhysicalMaterial({ 
         envMap: envmap, envMapIntensity: 0.135, flatShading: false,
-        roughness: 1, metalness: 0, color: 0x8b7355
+        roughness: 1, metalness: 0, map: textures.mountains
       }),
       squareCount
     );
@@ -2638,11 +2654,13 @@ export class SquareMapComponent implements AfterViewInit {
         // Create geometry for this tile
         let tileGeometry: THREE.BufferGeometry;
         
-        // Determine edge rounding based on neighbors
-        const edgeRounding = getEdgeRounding(x, z, logical, mapAssignments);
+     
+          // Determine edge rounding based on neighbors
+          const edgeRounding = getEdgeRounding(x, z, logical, mapAssignments);
+          
+          // Create the tile geometry using procedural approach
+          tileGeometry = createSelectivelyRoundedBox(1.0, height, 1.0, edgeRounding, this.cornerRadius * 5);
         
-        // Create the tile geometry using procedural approach
-        tileGeometry = createSelectivelyRoundedBox(1.0, height, 1.0, edgeRounding, this.cornerRadius * 5);
         
         // Position the geometry at the tile center
         tileGeometry.translate(posX, height * 0.5, posZ);
@@ -2696,12 +2714,13 @@ export class SquareMapComponent implements AfterViewInit {
           // This is crucial because BoxGeometry is indexed but PlaneGeometry might not be
           const nonIndexedGeometries = validGeometries.map(geom => {
             // Clone to avoid modifying original
-            const cloned = geom.clone();
+            let cloned = geom.clone();
             
             // Convert indexed to non-indexed if needed
             if (cloned.index) {
-              return cloned.toNonIndexed();
+              cloned = cloned.toNonIndexed();
             }
+          
             
             // Ensure normals are computed
             if (!cloned.attributes['normal']) {
@@ -2728,7 +2747,16 @@ export class SquareMapComponent implements AfterViewInit {
           } else if (terrain === 'freshwater') {
             // Use animated water material for freshwater (lakes/rivers)
             material = this.createAnimatedWaterMaterial(textures.freshwater, 0x4080ff, envmap, 0.85);
-          } else {
+          // } else if (terrain === 'mountains') {
+          //   // Use simple solid color for mountains (no texture)
+          //   material = new THREE.MeshStandardMaterial({ 
+          //     color: 0x8b7355,  // Brown mountain color
+          //     roughness: 0.9,
+          //     metalness: 0,
+          //     flatShading: true,  // Hide beveling subdivisions
+          //     wireframe: false    // Ensure wireframe is disabled
+          //   });
+          } else{
             const textureMap = textures[terrain as keyof typeof textures];
             // Use white for all terrains - let the texture and lighting define the color
             const materialColor = 0xffffff;
@@ -2965,7 +2993,9 @@ export class SquareMapComponent implements AfterViewInit {
     
     // Create or update person position after map is generated
     if (!this.personMesh) {
-      this.createPerson();
+      this.createPerson().catch(error => {
+        console.error('Error creating person:', error);
+      });
     } else {
       this.updatePerson();
     }
